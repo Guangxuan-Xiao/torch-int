@@ -16,3 +16,13 @@ if __name__ == '__main__':
     print(f"Int8Linear is {t_fp16 / t_int8:.2f}x faster than FP16Linear")
     print(
         f"Int8Linear uses {m_fp16 / m_int8:.2f}x less memory than FP16Linear")
+
+    # Results on V100:
+    # Int8Linear:
+    # Average inference time: 5.63 ms
+    # Peak memory usage: 1052.06 MB
+    # FP16Linear:
+    # Average inference time: 6.90 ms
+    # Peak memory usage: 3088.12 MB
+    # Int8Linear is 1.23x faster than FP16Linear
+    # Int8Linear uses 2.94x less memory than FP16Linear
