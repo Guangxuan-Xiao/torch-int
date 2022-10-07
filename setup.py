@@ -6,7 +6,7 @@ setup(
     name='torch_int',
     ext_modules=[
         cpp_extension.CUDAExtension(
-            'torch_int',
+            'torch_int._CUDA',
             [
                 'torch_int/gemm.cu',
             ],
