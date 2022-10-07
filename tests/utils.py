@@ -1,14 +1,14 @@
 import torch
 import torch.backends.cudnn as cudnn
 
+@torch.no_grad()
 def bench_model(model, dummy_input, device='cuda', num_iter=100):
     cudnn.benchmark = True
     model.eval()
     model.to(device)
     dummy_input = dummy_input.to(device)
-    with torch.no_grad():
-        for i in range(num_iter):
-            model(dummy_input)
+    for i in range(num_iter):
+        model(dummy_input)
     torch.cuda.synchronize()
     start = torch.cuda.Event(enable_timing=True)
     end = torch.cuda.Event(enable_timing=True)
