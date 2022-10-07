@@ -8,7 +8,7 @@ setup(
         cpp_extension.CUDAExtension(
             'torch_int._CUDA',
             [
-                'torch_int/gemm.cu',
+                'torch_int/kernels/gemm.cu',
             ],
             extra_link_args=['-lcublas_static', '-lcublasLt_static', '-lculibos', '-lcudart_static', '-lrt', '-lpthread', '-ldl'],
         ),

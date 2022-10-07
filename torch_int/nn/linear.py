@@ -11,12 +11,6 @@ class Int8Linear(torch.nn.Module):
             self.bias = torch.zeros(out_features, dtype=torch.float16)
         else:
             self.register_parameter('bias', None)
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        self.weight = torch.randint(-127, 127, (self.in_features, self.out_features), dtype=torch.int8)
-        if self.bias is not None:
-            self.bias.data.zero_()
 
     def to(self, *args, **kwargs):
         super(Int8Linear, self).to(*args, **kwargs)
@@ -28,3 +22,12 @@ class Int8Linear(torch.nn.Module):
     @torch.no_grad()
     def forward(self, input):
         return gemm(input, self.weight, False, False) + self.bias
+
+    @staticmethod
+    def from_float(module):
+        assert isinstance(module, torch.nn.Linear)
+        new_module = Int8Linear(module.in_features, module.out_features, module.bias is not None)
+        new_module.weight = module.weight.to(torch.int8)
+        if module.bias is not None:
+            new_module.bias = module.bias.to(torch.float16)
+        return new_module
