@@ -18,7 +18,7 @@ torch::Tensor gemm(torch::Tensor A, torch::Tensor B, bool transa, bool transb) {
   cudaDataType_t Btype = CUDA_R_8I;
   cudaDataType_t Ctype = CUDA_R_32I;
   cublasComputeType_t computeType = CUBLAS_COMPUTE_32I;
-  cublasGemmAlgo_t algo = CUBLAS_GEMM_DEFAULT_TENSOR_OP;
+  cublasGemmAlgo_t algo = CUBLAS_GEMM_DEFAULT;
 
   cublasHandle_t handle;
 

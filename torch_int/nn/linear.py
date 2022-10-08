@@ -21,6 +21,7 @@ class Int8Linear(torch.nn.Module):
 
     @torch.no_grad()
     def forward(self, input):
+        # A, B, transa, transb
         return gemm(input, self.weight, False, False) + self.bias
 
     @staticmethod
@@ -29,5 +30,5 @@ class Int8Linear(torch.nn.Module):
         new_module = Int8Linear(module.in_features, module.out_features, module.bias is not None)
         new_module.weight = module.weight.to(torch.int8)
         if module.bias is not None:
-            new_module.bias = module.bias.to(torch.float16)
+            new_module.bias = module.bias.to(torch.int8)
         return new_module
