@@ -1,4 +1,5 @@
 from struct import pack
+from numpy import source
 from setuptools import setup, find_packages
 from torch.utils import cpp_extension
 from torch.utils.cpp_extension import CUDAExtension, BuildExtension
@@ -6,8 +7,8 @@ setup(
     name='torch_int',
     ext_modules=[
         cpp_extension.CUDAExtension(
-            'torch_int._CUDA',
-            [
+            name='torch_int._CUDA',
+            sources=[
                 'torch_int/kernels/gemm.cu',
                 'torch_int/kernels/bindings.cpp',
             ],
