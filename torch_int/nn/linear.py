@@ -30,6 +30,7 @@ class Int8Linear(torch.nn.Module):
         self.weight = self.weight.to(*args, **kwargs)
         if self.bias is not None:
             self.bias = self.bias.to(*args, **kwargs)
+        self.weight_scales = self.weight_scales.to(*args, **kwargs)
         return self
 
     @torch.no_grad()
