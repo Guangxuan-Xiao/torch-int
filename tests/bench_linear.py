@@ -1,4 +1,3 @@
-from ast import arg
 import torch
 from torch_int.nn import Int8Linear
 from utils import bench_model

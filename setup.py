@@ -9,7 +9,8 @@ setup(
         cpp_extension.CUDAExtension(
             name='torch_int._CUDA',
             sources=[
-                'torch_int/kernels/gemm.cu',
+                'torch_int/kernels/gemm_cublas.cu',
+                'torch_int/kernels/gemm_cutlass.cu',
                 'torch_int/kernels/bindings.cpp',
             ],
             include_dirs=['torch_int/kernels/include'],
