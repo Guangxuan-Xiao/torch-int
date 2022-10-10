@@ -2,7 +2,7 @@ import torch
 import torch.backends.cudnn as cudnn
 
 @torch.no_grad()
-def bench_model(model, dummy_input, device='cuda', num_iter=100):
+def bench_model(model, dummy_input, device='cuda', num_iter=1000):
     cudnn.benchmark = True
     model.eval()
     model.to(device)
@@ -26,7 +26,7 @@ def bench_model(model, dummy_input, device='cuda', num_iter=100):
         f"Peak memory usage: {torch.cuda.max_memory_allocated() / 1024 / 1024:.2f} MB")
     return start.elapsed_time(end) / num_iter, torch.cuda.max_memory_allocated() / 1024 / 1024
 
-def bench_func(func, args, num_iter=100):
+def bench_func(func, args, num_iter=1000):
     cudnn.benchmark = True
     # Warm up
     for i in range(num_iter):

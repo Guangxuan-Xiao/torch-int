@@ -1,12 +1,12 @@
 import torch
-from .._CUDA import gemm_cublas as gemm
+from .._CUDA import gemm_cutlass as gemm
 
 class Int8Linear(torch.nn.Module):
     def __init__(self, in_features, out_features, bias=True):
         super(Int8Linear, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
-        self.weight = torch.randint(-127, 127, (self.in_features, self.out_features), dtype=torch.int8)
+        self.weight = torch.randint(-127, 127, (self.out_features, self.in_features), dtype=torch.int8)
         if bias:
             self.bias = torch.zeros(out_features, dtype=torch.float16)
         else:
@@ -22,7 +22,7 @@ class Int8Linear(torch.nn.Module):
     @torch.no_grad()
     def forward(self, input):
         # A, B, transa, transb
-        return gemm(input, self.weight, False, False) + self.bias
+        return gemm(input, self.weight) + self.bias
 
     @staticmethod
     def from_float(module):

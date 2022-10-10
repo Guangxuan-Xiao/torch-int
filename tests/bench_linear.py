@@ -19,16 +19,14 @@ if __name__ == '__main__':
     print('C2 = ', C2)
     print('precision = ', args.precision)
     if args.precision == 'int8':
-        dummy_input = torch.randint(-127, 127, (SEQ_LEN, C1))
-        model_int8 = Int8Linear(C1, C2)
-        t_int8, m_int8 = bench_model(model_int8, dummy_input, num_iter=1000)
+        dummy_input = torch.randint(-127, 127, (SEQ_LEN, C1), dtype=torch.int8)
+        model = Int8Linear(C1, C2)
     elif args.precision == 'fp16':
         dummy_input = torch.randn(SEQ_LEN, C1).half()
-        model_fp16 = torch.nn.Linear(C1, C2).half()
-        t_fp16, m_fp16 = bench_model(model_fp16, dummy_input, num_iter=1000)
+        model = torch.nn.Linear(C1, C2).half()
     else:
         raise NotImplementedError
-
+    bench_model(model, dummy_input, num_iter=10000)
     # Results on V100:
     # Int8Linear:
     # Average inference time: 5.62 ms
