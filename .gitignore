@@ -1,3 +1,6 @@
+# Nsight profiler output file
+*.nsys-rep
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

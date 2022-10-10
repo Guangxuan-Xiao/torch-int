@@ -14,17 +14,18 @@ if __name__ == '__main__':
 
     SEQ_LEN = args.seq_len
     C1, C2 = args.C1, args.C2
-
+    print('SEQ_LEN = ', SEQ_LEN)
+    print('C1 = ', C1)
+    print('C2 = ', C2)
+    print('precision = ', args.precision)
     if args.precision == 'int8':
         dummy_input = torch.randint(-127, 127, (SEQ_LEN, C1))
         model_int8 = Int8Linear(C1, C2)
-        print("Int8Linear:")
-        t_int8, m_int8 = bench_model(model_int8, dummy_input)
+        t_int8, m_int8 = bench_model(model_int8, dummy_input, num_iter=1000)
     elif args.precision == 'fp16':
         dummy_input = torch.randn(SEQ_LEN, C1).half()
         model_fp16 = torch.nn.Linear(C1, C2).half()
-        print("FP16Linear:")
-        t_fp16, m_fp16 = bench_model(model_fp16, dummy_input)
+        t_fp16, m_fp16 = bench_model(model_fp16, dummy_input, num_iter=1000)
     else:
         raise NotImplementedError
 

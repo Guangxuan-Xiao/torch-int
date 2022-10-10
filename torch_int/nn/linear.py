@@ -1,5 +1,5 @@
 import torch
-from .._CUDA import gemm
+from .._CUDA import gemm_cublas as gemm
 
 class Int8Linear(torch.nn.Module):
     def __init__(self, in_features, out_features, bias=True):
