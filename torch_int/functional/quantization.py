@@ -1,6 +1,5 @@
 import torch
 import numpy as np
-from icecream import ic
 
 def _get_weight_per_channel_scales(w, n_bit=8, k_near_zero_tolerance=1e-6):
     # NOTICE: the zero point for w is always chosen as 0, so it is actually a symmetric quantization
@@ -93,9 +92,6 @@ def dequantize_activation_w_per_channel_a_per_token(q_act, w_scales, a_scales):
     # a_scales: [B 1]
     dtype = a_scales.dtype
     q_act = q_act.to(torch.float32)
-    ic(q_act)
-    ic(w_scales)
-    ic(a_scales)
     q_act = q_act * w_scales.reshape(1, -1) * a_scales.reshape(-1, 1)
     return q_act.to(dtype)
 

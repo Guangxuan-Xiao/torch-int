@@ -7,7 +7,6 @@ from ..functional.quantization import (
     dequantize_activation_w_per_channel_a_per_token,
     dequantize_activation_w_per_channel_a_per_tensor,
 )
-from icecream import ic
 
 class Int8Linear(torch.nn.Module):
     def __init__(self, in_features, out_features, bias=True, act_quant='per_token'):
@@ -44,14 +43,10 @@ class Int8Linear(torch.nn.Module):
         x_shape = x.shape
         x = x.view(-1, x_shape[-1])
         q_x, x_scale = self.activation_quantizer(x)
-        ic(q_x)
         q_y = gemm(q_x, self.weight)
-        ic(q_y)
         q_y = q_y.view(x_shape[:-1] + (-1,))
         y = self.activation_dequantizer(q_y, self.weight_scales, x_scale)
-        ic(y)
         y = y + self.bias
-        ic(y)
         return y
 
     @staticmethod
