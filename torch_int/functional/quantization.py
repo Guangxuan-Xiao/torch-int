@@ -72,7 +72,7 @@ def dynamic_quantize_activation_per_tensor_min_max_zeropoint(t):
 
 @torch.no_grad()
 def dynamic_quantize_activation_per_tensor_min_max(t):
-    max_val = t.abs().max()[0]
+    max_val = t.abs().max()
     max_val = torch.clamp(max_val, min=1e-8) / (2 ** 7 - 1)
     q_act = (t / max_val).to(torch.int8)
     return q_act, max_val

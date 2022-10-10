@@ -15,7 +15,8 @@ def bench_quant_linear(args):
     dummy_input = torch.randn(SEQ_LEN, C1).half()
 
     if args.precision == 'int8':
-        model = Int8Linear.from_float(model)
+        print('Activation Quantizer: ', args.act_quant)
+        model = Int8Linear.from_float(model, args.act_quant)
 
     bench_model(model, dummy_input, num_iter=10000)
 
@@ -25,5 +26,6 @@ if __name__ == '__main__':
     parser.add_argument('--C1', type=int, default=12288)
     parser.add_argument('--C2', type=int, default=12288)
     parser.add_argument('--precision', type=str, default='int8')
+    parser.add_argument('--act-quant', type=str, default='per_token')
     args = parser.parse_args()
     bench_quant_linear(args)
