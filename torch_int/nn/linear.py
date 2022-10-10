@@ -44,8 +44,8 @@ class Int8Linear(torch.nn.Module):
         x = x.view(-1, x_shape[-1])
         q_x, x_scale = self.activation_quantizer(x)
         q_y = gemm(q_x, self.weight)
-        q_y = q_y.view(x_shape[:-1] + (-1,))
         y = self.activation_dequantizer(q_y, self.weight_scales, x_scale)
+        y = y.view(*x_shape[:-1], -1)
         y = y + self.bias
         return y
 
