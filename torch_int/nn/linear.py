@@ -56,3 +56,6 @@ class Int8Linear(torch.nn.Module):
         if module.bias is not None:
             new_module.bias = module.bias.to(torch.float16)
         return new_module
+
+    def __repr__(self):
+        return super().__repr__() + f'({self.in_features}, {self.out_features}, bias={self.bias is not None}, act_quant={self.activation_quantizer.__name__})'
