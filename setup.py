@@ -9,7 +9,9 @@ setup(
             'torch_int._CUDA',
             [
                 'torch_int/kernels/gemm.cu',
+                'torch_int/kernels/bindings.cpp',
             ],
+            include_dirs=['torch_int/kernels/include'],
             extra_link_args=['-lcublas_static', '-lcublasLt_static', '-lculibos', '-lcudart_static', '-lrt', '-lpthread', '-ldl'],
         ),
     ],
