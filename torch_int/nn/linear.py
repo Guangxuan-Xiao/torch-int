@@ -41,8 +41,10 @@ class Int8Linear(torch.nn.Module):
 
     @torch.no_grad()
     def forward(self, x):
+        x_shape = x.shape
         q_x, x_scale = self.activation_quantizer(x)
-        q_y = gemm(q_x, self.weight)
+        q_y = gemm(q_x.view(-1, x_shape[-1]), self.weight)
+        q_y = q_y.view(x_shape[:-1] + (-1,))
         y = self.activation_dequantizer(q_y, self.weight_scales, x_scale)
         y = y + self.bias
         return y
