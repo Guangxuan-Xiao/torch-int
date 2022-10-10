@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-
+from icecream import ic
 
 def _get_weight_per_channel_scales(w, n_bit=8, k_near_zero_tolerance=1e-6):
     # NOTICE: the zero point for w is always chosen as 0, so it is actually a symmetric quantization
@@ -88,18 +88,27 @@ def dynamic_quantize_activation_per_token_min_max(t):
 
 @torch.no_grad()
 def dequantize_activation_w_per_channel_a_per_token(q_act, w_scales, a_scales):
-    # q_act: [batch_size, seq_len, dim]
+    # q_act: [B, dim]
     # w_scales: [dim]
-    # a_scales: [batch_size, seq_len, 1]
-    return q_act.to(torch.float16) * w_scales.reshape(1, 1, -1) * a_scales
+    # a_scales: [B 1]
+    dtype = a_scales.dtype
+    q_act = q_act.to(torch.float32)
+    ic(q_act)
+    ic(w_scales)
+    ic(a_scales)
+    q_act = q_act * w_scales.reshape(1, -1) * a_scales.reshape(-1, 1)
+    return q_act.to(dtype)
 
 
 @torch.no_grad()
 def dequantize_activation_w_per_channel_a_per_tensor(q_act, w_scales, a_scales):
-    # q_act: [batch_size, seq_len, dim]
+    # q_act: [..., dim]
     # w_scales: [dim]
     # a_scales: [1]
-    return q_act.to(torch.float16) * w_scales.reshape(1, 1, -1) * a_scales
+    dtype = a_scales.dtype
+    q_act = q_act.to(torch.float32)
+    q_act = q_act * w_scales.reshape(1, -1) * a_scales
+    return q_act.to(dtype)
 
 
 @torch.no_grad()
