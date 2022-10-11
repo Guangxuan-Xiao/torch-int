@@ -48,6 +48,9 @@ def _get_weight_per_channel_scales(w, n_bit=8, k_near_zero_tolerance=1e-6):
 def quantize_weight_per_channel_min_max(w):
     scales = _get_weight_per_channel_scales(
         w, n_bit=8).reshape(-1, *([1] * (len(w.shape)-1)))
+    if not w.is_cuda:
+        # half rounding is not supported on CPU
+        w = w.float()
     w_q = (w / scales).round().clamp(-128, 127).to(torch.int8)
     return w_q, scales
 

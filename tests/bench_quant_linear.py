@@ -11,8 +11,8 @@ def bench_quant_linear(args):
     print('C1 = ', C1)
     print('C2 = ', C2)
     print('precision = ', args.precision)
-    model = torch.nn.Linear(C1, C2).half()
-    dummy_input = torch.randn(SEQ_LEN, C1).half()
+    model = torch.nn.Linear(C1, C2).cuda().half()
+    dummy_input = torch.randn(SEQ_LEN, C1).cuda().half()
 
     if args.precision == 'int8':
         print('Activation Quantizer: ', args.act_quant)
