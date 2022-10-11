@@ -5,8 +5,8 @@ from icecream import ic
 
 
 @torch.no_grad()
-def test_quant_linear():
-    linear = torch.nn.Linear(16, 4).cuda().half()
+def test_quant_linear_1():
+    linear = torch.nn.Linear(16, 4, bias=False).cuda().half()
     linear.weight.copy_(
         torch.tensor([[-0.0279, -0.2490,  0.0114, -0.0024,  0.0257, -0.0735,  0.0860, -0.2352,
                        -0.2261,  0.0398, -0.0443, -0.2264,  0.2310, -0.1953,  0.1742,  0.2457],
@@ -16,7 +16,7 @@ def test_quant_linear():
                        0.1174, -0.1809, -0.1707, -0.1005,  0.1559, -0.1802, -0.0812,  0.1442],
                       [0.0134,  0.0653, -0.2432,  0.2156, -0.0065, -0.0313,  0.1425, -0.1692,
                        -0.0691, -0.2374, -0.0140,  0.1893,  0.0249,  0.0800,  0.1508,  0.1681]],
-                     device='cuda:0', dtype=torch.float16, requires_grad=True)
+                     device='cuda:0', dtype=torch.float16, requires_grad=False)
     )
     ic(linear.weight)
     int8_linear = Int8Linear.from_float(linear).cuda()
@@ -37,6 +37,23 @@ def test_quant_linear():
     mse = (y - q_y).pow(2).mean()
     ic(mse)
 
+@torch.no_grad()
+def test_quant_linear_2():
+    for _ in range(10):
+        linear = torch.nn.Linear(12288, 12288)
+        linear.weight.copy_(torch.randn_like(linear.weight))
+        linear.bias.copy_(torch.randn_like(linear.bias))
+        linear = linear.cuda().half()
+        int8_linear = Int8Linear.from_float(linear).cuda()
+        dummy_input = torch.randn(512, 12288, device='cuda:0', dtype=torch.float16)
+        y = linear(dummy_input).float()
+        q_y = int8_linear(dummy_input).float()
+        print(y)
+        print(q_y)
+        r2 = 1 - (y - q_y).pow(2).mean() / y.pow(2).mean()
+        ic(r2)
+
 
 if __name__ == '__main__':
-    test_quant_linear()
+    # test_quant_linear_1()
+    test_quant_linear_2()

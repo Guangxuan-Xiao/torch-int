@@ -48,7 +48,7 @@ def _get_weight_per_channel_scales(w, n_bit=8, k_near_zero_tolerance=1e-6):
 def quantize_weight_per_channel_min_max(w):
     scales = _get_weight_per_channel_scales(
         w, n_bit=8).reshape(-1, *([1] * (len(w.shape)-1)))
-    w_q = (w / scales).to(torch.int8)
+    w_q = (w / scales).round().clamp(-128, 127).to(torch.int8)
     return w_q, scales
 
 
@@ -65,7 +65,7 @@ def dynamic_quantize_activation_per_tensor_min_max_zeropoint(t):
     max_val = (max_val - min_val) / 2
 
     max_val = torch.clamp(max_val, min=1e-8) / (2 ** 7 - 1)
-    q_act = (t / max_val).to(torch.int8)
+    q_act = (t / max_val).round().clamp(-128, 127).to(torch.int8)
     return q_act, max_val, zp
 
 
@@ -73,7 +73,7 @@ def dynamic_quantize_activation_per_tensor_min_max_zeropoint(t):
 def dynamic_quantize_activation_per_tensor_min_max(t):
     max_val = t.abs().max()
     max_val = torch.clamp(max_val, min=1e-8) / (2 ** 7 - 1)
-    q_act = (t / max_val).to(torch.int8)
+    q_act = (t / max_val).round().clamp(-128, 127).to(torch.int8)
     return q_act, max_val
 
 
@@ -81,8 +81,16 @@ def dynamic_quantize_activation_per_tensor_min_max(t):
 def dynamic_quantize_activation_per_token_min_max(t):
     max_val = t.abs().max(dim=-1, keepdim=True)[0]
     max_val = torch.clamp(max_val, min=1e-8) / (2 ** 7 - 1)
-    q_act = (t / max_val).to(torch.int8)
+    q_act = (t / max_val).round().clamp(-128, 127).to(torch.int8)
     return q_act, max_val
+
+@torch.no_grad()
+def _safe_int32_to_fp16_cast(x):
+    max_val = x.abs().max()
+    shift = torch.ceil(torch.log2(max_val)) - 16
+    shift = torch.clamp(shift, min=0).to(torch.int32)
+    x = torch.bitwise_right_shift(x, shift)
+    return x.to(torch.float16), shift
 
 
 @torch.no_grad()
