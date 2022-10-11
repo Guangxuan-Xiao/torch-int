@@ -11,6 +11,7 @@ setup(
             sources=[
                 'torch_int/kernels/gemm_cublas.cu',
                 'torch_int/kernels/gemm_cutlass.cu',
+                'torch_int/kernels/quantization.cu',
                 'torch_int/kernels/bindings.cpp',
             ],
             include_dirs=['torch_int/kernels/include'],

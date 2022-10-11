@@ -67,7 +67,7 @@ def dynamic_quantize_activation_per_tensor_min_max_zeropoint(t):
     t -= zp
     max_val = (max_val - min_val) / 2
 
-    max_val = torch.clamp(max_val, min=1e-8) / (2 ** 7 - 1)
+    max_val = torch.clamp(max_val, min=1e-8) / 127
     q_act = (t / max_val).round().clamp(-128, 127).to(torch.int8)
     return q_act, max_val, zp
 
@@ -75,7 +75,7 @@ def dynamic_quantize_activation_per_tensor_min_max_zeropoint(t):
 @torch.no_grad()
 def dynamic_quantize_activation_per_tensor_min_max(t):
     max_val = t.abs().max()
-    max_val = torch.clamp(max_val, min=1e-8) / (2 ** 7 - 1)
+    max_val = torch.clamp(max_val, min=1e-8) / 127
     q_act = (t / max_val).round().clamp(-128, 127).to(torch.int8)
     return q_act, max_val
 
@@ -83,7 +83,7 @@ def dynamic_quantize_activation_per_tensor_min_max(t):
 @torch.no_grad()
 def dynamic_quantize_activation_per_token_min_max(t):
     max_val = t.abs().max(dim=-1, keepdim=True)[0]
-    max_val = torch.clamp(max_val, min=1e-8) / (2 ** 7 - 1)
+    max_val = torch.clamp(max_val, min=1e-8) / 127
     q_act = (t / max_val).round().clamp(-128, 127).to(torch.int8)
     return q_act, max_val
 
@@ -105,7 +105,6 @@ def dequantize_activation_w_per_channel_a_per_token(q_act, w_scales, a_scales):
     q_act = q_act.to(torch.float32)
     q_act = q_act * w_scales.reshape(1, -1) * a_scales.reshape(-1, 1)
     return q_act.to(dtype)
-
 
 @torch.no_grad()
 def dequantize_activation_w_per_channel_a_per_tensor(q_act, w_scales, a_scales):
