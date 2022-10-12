@@ -1,1 +1,1 @@
-from .linear import Int8Linear
+from .linear import Int8Linear, W8A16Linear

@@ -94,14 +94,10 @@ class W8A16Linear(torch.nn.Module):
 
     @torch.no_grad()
     def forward(self, x):
-        x_shape = x.shape
-        x = x.view(-1, x_shape[-1])
         weight_fp16 = self.weight.to(torch.float16)
         weight_fp16.mul_(self.weight_scales.view(-1, 1))
-        y = torch.mm(x, weight_fp16)
-        y = y.view(*x_shape[:-1], -1)
-        if self.bias is not None:
-            y += self.bias
+        y = torch.functional.F.linear(x, weight_fp16, self.bias)
+        del weight_fp16
         return y
 
     @staticmethod
