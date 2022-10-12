@@ -91,6 +91,22 @@ def dynamic_quantize_activation_per_token_min_max(t):
     return q_act, max_val
 
 @torch.no_grad()
+def fake_quantize_activation_per_tensor_min_max(t):
+    max_val = t.abs().max()
+    max_val = torch.clamp(max_val, min=1e-8) / 127
+    t.div_(max_val).round_().clamp_(-128, 127).mul_(max_val)
+    return t
+
+
+@torch.no_grad()
+def fake_quantize_activation_per_token_min_max(t):
+    max_val = t.abs().max(dim=-1, keepdim=True)[0]
+    max_val = torch.clamp(max_val, min=1e-8) / 127
+    t.div_(max_val).round_().clamp_(-128, 127).mul_(max_val)
+    return t
+
+
+@torch.no_grad()
 def _safe_int32_to_fp16_cast(x):
     max_val = x.abs().max()
     shift = torch.ceil(torch.log2(max_val)) - 16
