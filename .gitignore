@@ -1,5 +1,9 @@
+#NFS files
+**/.nfs*
+
 # Nsight profiler output file
 *.nsys-rep
+*.prof
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
