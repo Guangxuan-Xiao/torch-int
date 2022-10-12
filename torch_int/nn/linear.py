@@ -66,3 +66,54 @@ class Int8Linear(torch.nn.Module):
 
     def __repr__(self):
         return super().__repr__() + f'({self.in_features}, {self.out_features}, bias={self.bias is not None}, act_quant={self.activation_quantizer.__name__})'
+
+
+class W8A16Linear(torch.nn.Module):
+    def __init__(self, in_features, out_features, bias=True):
+        super(W8A16Linear, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+
+        self.register_buffer('weight', torch.randint(-127, 127, (self.out_features,
+                                                                 self.in_features), dtype=torch.int8, requires_grad=False))
+        if bias:
+            self.register_buffer('bias', torch.zeros(
+                (1, self.out_features), dtype=torch.float16, requires_grad=False))
+        else:
+            self.register_buffer('bias', None)
+        self.register_buffer('weight_scales', torch.ones(
+            self.out_features, dtype=torch.float16, requires_grad=False))
+
+    def to(self, *args, **kwargs):
+        super(W8A16Linear, self).to(*args, **kwargs)
+        self.weight = self.weight.to(*args, **kwargs)
+        if self.bias is not None:
+            self.bias = self.bias.to(*args, **kwargs)
+        self.weight_scales = self.weight_scales.to(*args, **kwargs)
+        return self
+
+    @torch.no_grad()
+    def forward(self, x):
+        x_shape = x.shape
+        x = x.view(-1, x_shape[-1])
+        weight_fp16 = self.weight.to(torch.float16)
+        weight_fp16.mul_(self.weight_scales.view(-1, 1))
+        y = torch.mm(x, weight_fp16)
+        y = y.view(*x_shape[:-1], -1)
+        if self.bias is not None:
+            y += self.bias
+        return y
+
+    @staticmethod
+    def from_float(module):
+        assert isinstance(module, torch.nn.Linear)
+        new_module = W8A16Linear(
+            module.in_features, module.out_features, module.bias is not None)
+        new_module.weight, new_module.weight_scales = quantize_weight_per_channel_min_max(
+            module.weight)
+        if module.bias is not None:
+            new_module.bias = module.bias.to(torch.float16)
+        return new_module
+
+    def __repr__(self):
+        return super().__repr__() + f'({self.in_features}, {self.out_features}, bias={self.bias is not None})'
