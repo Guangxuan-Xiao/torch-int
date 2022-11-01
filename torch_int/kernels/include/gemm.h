@@ -7,5 +7,4 @@ torch::Tensor gemm_cublas(torch::Tensor A, torch::Tensor B, bool transa,
 
 torch::Tensor gemm_cutlass(torch::Tensor input, torch::Tensor weight);
 
-
 #endif // !GEMM_H

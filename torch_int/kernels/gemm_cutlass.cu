@@ -102,3 +102,5 @@ torch::Tensor gemm_cutlass(torch::Tensor input, torch::Tensor weight) {
 
   return out;
 }
+
+torch::Tensor
