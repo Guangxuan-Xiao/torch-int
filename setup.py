@@ -9,13 +9,16 @@ setup(
         cpp_extension.CUDAExtension(
             name='torch_int._CUDA',
             sources=[
+                'torch_int/kernels/linear.cu',
+                'torch_int/kernels/fused.cu',
+                'torch_int/kernels/bindings.cpp',
                 'torch_int/kernels/gemm_cublas.cu',
                 'torch_int/kernels/gemm_cutlass.cu',
                 'torch_int/kernels/quantization.cu',
-                'torch_int/kernels/bindings.cpp',
             ],
             include_dirs=['torch_int/kernels/include'],
-            extra_link_args=['-lcublas_static', '-lcublasLt_static', '-lculibos', '-lcudart_static', '-lrt', '-lpthread', '-ldl'],
+            extra_link_args=['-lcublas_static', '-lcublasLt_static',
+                             '-lculibos', '-lcudart_static', '-lrt', '-lpthread', '-ldl'],
         ),
     ],
     cmdclass={
