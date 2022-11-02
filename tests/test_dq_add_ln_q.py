@@ -1,27 +1,26 @@
 import torch
-from torch_int._CUDA import dq_add_layernorm_q
 from icecream import ic
-
-
-def ref_dq_add_layernorm_q(input, input_scale, residual_input, gamma, beta, eps):
-    residual_output_fp32 = torch.add(residual_input, input, alpha=input_scale)
-    ln_output_fp32 = torch.nn.functional.layer_norm(
-        residual_output_fp32, residual_output_fp32.shape[-1:], gamma, beta, eps)
-    return ln_output_fp32
+from torch_int.functional.fused import dq_add_layernorm_q_py, dq_add_layernorm_q_cpp
 
 
 @torch.no_grad()
 def test_dq_add_layernorm_q():
-    B, M, N = 128, 512, 1024
-    weight = torch.randint(-128, 127, (N, M), dtype=torch.int8)
-    bias = torch.randint(-65536, 65535, (N,), dtype=torch.int32)
-    x = torch.randint(-128, 127, (B, M), dtype=torch.int8)
-    linear = torch.nn.Linear(M, N, bias=True)
-    linear.weight.data = weight.float()
-    linear.bias.data = bias.float()
-    y_gt = linear(x.float())
-    y = linear_a8_w8_b32_o32(x.cuda(), weight.cuda(), bias.cuda())
-    ic(torch.allclose(y_gt, y.float().cpu(), atol=1e-3))
+    B, L, H = 2, 3, 4
+    input_int32 = torch.randint(-65536, 65536, (B, L, H), dtype=torch.int32)
+    input_scale_fp32 = 0.01
+    residual_input_fp32 = torch.randn(B, L, H)
+    layernorm = torch.nn.LayerNorm(H)
+    gamma = layernorm.weight
+    beta = layernorm.bias
+    eps = layernorm.eps
+    py_output = dq_add_layernorm_q_py(
+        input_int32, input_scale_fp32, residual_input_fp32, gamma, beta, eps)
+    ic(py_output)
+    cpp_output = dq_add_layernorm_q_cpp(
+        input_int32, input_scale_fp32, residual_input_fp32, gamma, beta, eps)
+    ic(cpp_output)
+    ic(torch.allclose(py_output[0], cpp_output[0]))
+    ic(torch.allclose(py_output[1], cpp_output[1]))
 
 
 if __name__ == '__main__':
