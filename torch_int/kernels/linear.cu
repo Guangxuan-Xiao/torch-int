@@ -89,18 +89,18 @@ torch::Tensor linear_a8_w8_b32_o32(torch::Tensor input,  // INT8
   // Check the problem size is supported or not
   cutlass::Status status = gemm_op.can_implement(arguments);
   if (status != cutlass::Status::kSuccess) {
-    throw std::runtime_error("cutlass gemm failed, error code");
+    throw std::runtime_error("cutlass cannot implement");
   }
 
   // Initialize CUTLASS kernel with arguments and workspace pointer
   status = gemm_op.initialize(arguments, workspace.get());
   if (status != cutlass::Status::kSuccess) {
-    throw std::runtime_error("cutlass gemm failed, error code");
+    throw std::runtime_error("cutlass cannot initialize");
   }
 
   status = gemm_op();
   if (status != cutlass::Status::kSuccess) {
-    throw std::runtime_error("cutlass gemm failed, error code");
+    throw std::runtime_error("cutlass cannot run");
   }
 
   return out;
@@ -108,10 +108,10 @@ torch::Tensor linear_a8_w8_b32_o32(torch::Tensor input,  // INT8
 
 // used by q_proj, k_proj, v_proj, return INT8
 torch::Tensor linear_a8_w8_b8_o8(torch::Tensor input,  // INT8
-                                  torch::Tensor weight, // INT8
-                                  torch::Tensor bias,   // INT8
-                                  float output_scale,   // FP32
-                                  float bias_scale      // FP32
+                                 torch::Tensor weight, // INT8
+                                 torch::Tensor bias,   // INT8
+                                 float output_scale,   // FP32
+                                 float bias_scale      // FP32
 ) {
   auto M = input.size(0);
   auto N = weight.size(0);
@@ -142,10 +142,9 @@ torch::Tensor linear_a8_w8_b8_o8(torch::Tensor input,  // INT8
 
   auto input_size = cutlass::MatrixCoord(M, K);
   auto weight_size = cutlass::MatrixCoord(K, N);
-  auto bias_size = cutlass::MatrixCoord(int64_t(1), N);
   auto output_size = cutlass::MatrixCoord(M, N);
   auto device = input.device();
-  auto out = torch::empty({M, N}, torch::dtype(torch::kInt8).device(device));
+  auto out = bias.to(device).view({1, -1}).repeat({M, 1});
 
   // constexpr int kSparse = Gemm::kSparse;
   // How many elements of A are covered per ElementE
@@ -158,8 +157,6 @@ torch::Tensor linear_a8_w8_b8_o8(torch::Tensor input,  // INT8
       input.data_ptr<int8_t>(), LayoutInputA::packed(input_size));
   cutlass::TensorRef<ElementInputB, LayoutInputB> weight_ref(
       weight.data_ptr<int8_t>(), LayoutInputB::packed(weight_size));
-  cutlass::TensorRef<ElementOutput, LayoutOutput> bias_ref(
-      bias.data_ptr<int8_t>(), LayoutOutput(0));
   cutlass::TensorRef<ElementOutput, LayoutOutput> out_ref(
       out.data_ptr<int8_t>(), LayoutOutput::packed(output_size));
 
@@ -171,12 +168,9 @@ torch::Tensor linear_a8_w8_b8_o8(torch::Tensor input,  // INT8
       problem_size, // <- problem size of matrix multiplication
       input_ref,    // <- reference to matrix A on device
       weight_ref,   // <- reference to matrix B on device
-      bias_ref,     // <- the C matrix is treated as the bias vector. We can
-                    // enable the GEMM to project away the N dimension by
-      // setting the stride to zero. #TODO: check if this is correct
-      out_ref, // <- reference to matrix D on device
-      {alpha, beta},
-      2};
+      out_ref,      // <- reference to matrix C on device
+      out_ref,      // <- reference to matrix D on device
+      {alpha, beta}, 1};
   Gemm gemm_op;
 
   // Using the arguments, query for extra workspace required for matrix
@@ -189,18 +183,21 @@ torch::Tensor linear_a8_w8_b8_o8(torch::Tensor input,  // INT8
   // Check the problem size is supported or not
   cutlass::Status status = gemm_op.can_implement(arguments);
   if (status != cutlass::Status::kSuccess) {
-    throw std::runtime_error("cutlass gemm failed, error code");
+    throw std::runtime_error("cutlass cannot implement, status: " +
+                             std::to_string((int)status));
   }
 
   // Initialize CUTLASS kernel with arguments and workspace pointer
   status = gemm_op.initialize(arguments, workspace.get());
   if (status != cutlass::Status::kSuccess) {
-    throw std::runtime_error("cutlass gemm failed, error code");
+    throw std::runtime_error("cutlass cannot initialize, status: " +
+                             std::to_string((int)status));
   }
 
   status = gemm_op();
   if (status != cutlass::Status::kSuccess) {
-    throw std::runtime_error("cutlass gemm failed, error code");
+    throw std::runtime_error("cutlass cannot run, status: " +
+                             std::to_string((int)status));
   }
 
   return out;
@@ -208,10 +205,10 @@ torch::Tensor linear_a8_w8_b8_o8(torch::Tensor input,  // INT8
 
 // used by fc1
 torch::Tensor linear_relu_a8_w8_b8_o8(torch::Tensor input,  // INT8
-                                       torch::Tensor weight, // INT8
-                                       torch::Tensor bias,   // INT8
-                                       float output_scale,   // FP32
-                                       float bias_scale      // FP32
+                                      torch::Tensor weight, // INT8
+                                      torch::Tensor bias,   // INT8
+                                      float output_scale,   // FP32
+                                      float bias_scale      // FP32
 ) {
   auto M = input.size(0);
   auto N = weight.size(0);
@@ -254,11 +251,10 @@ torch::Tensor linear_relu_a8_w8_b8_o8(torch::Tensor input,  // INT8
 
   auto input_size = cutlass::MatrixCoord(M, K);
   auto weight_size = cutlass::MatrixCoord(K, N);
-  auto bias_size = cutlass::MatrixCoord(int64_t(1), N);
   auto output_size = cutlass::MatrixCoord(M, N);
   auto device = input.device();
   // use the broadcasted bias as the output
-  auto out = torch::empty({M, N}, torch::dtype(torch::kInt8).device(device));
+  auto out = bias.to(device).view({1, -1}).repeat({M, 1});
 
   // constexpr int kSparse = Gemm::kSparse;
   // How many elements of A are covered per ElementE
@@ -271,8 +267,6 @@ torch::Tensor linear_relu_a8_w8_b8_o8(torch::Tensor input,  // INT8
       input.data_ptr<int8_t>(), LayoutInputA::packed(input_size));
   cutlass::TensorRef<ElementInputB, LayoutInputB> weight_ref(
       weight.data_ptr<int8_t>(), LayoutInputB::packed(weight_size));
-  cutlass::TensorRef<ElementOutput, LayoutOutput> bias_ref(
-      bias.data_ptr<int8_t>(), LayoutOutput(0));
   cutlass::TensorRef<ElementOutput, LayoutOutput> out_ref(
       out.data_ptr<int8_t>(), LayoutOutput::packed(output_size));
 
@@ -284,12 +278,9 @@ torch::Tensor linear_relu_a8_w8_b8_o8(torch::Tensor input,  // INT8
       problem_size, // <- problem size of matrix multiplication
       input_ref,    // <- reference to matrix A on device
       weight_ref,   // <- reference to matrix B on device
-      bias_ref,     // <- the C matrix is treated as the bias vector. We can
-                    // enable the GEMM to project away the N dimension by
-      // setting the stride to zero. #TODO: check if this is correct
-      out_ref, // <- reference to matrix D on device
-      {alpha, beta},
-      2};
+      out_ref,      // <- reference to matrix C on device
+      out_ref,      // <- reference to matrix D on device
+      {alpha, beta}, 1};
   Gemm gemm_op;
 
   // Using the arguments, query for extra workspace required for matrix
@@ -302,18 +293,21 @@ torch::Tensor linear_relu_a8_w8_b8_o8(torch::Tensor input,  // INT8
   // Check the problem size is supported or not
   cutlass::Status status = gemm_op.can_implement(arguments);
   if (status != cutlass::Status::kSuccess) {
-    throw std::runtime_error("cutlass gemm failed, error code");
+    throw std::runtime_error("cutlass cannot implement, status: " +
+                             std::to_string((int)status));
   }
 
   // Initialize CUTLASS kernel with arguments and workspace pointer
   status = gemm_op.initialize(arguments, workspace.get());
   if (status != cutlass::Status::kSuccess) {
-    throw std::runtime_error("cutlass gemm failed, error code");
+    throw std::runtime_error("cutlass cannot initialize, status: " +
+                             std::to_string((int)status));
   }
 
   status = gemm_op();
   if (status != cutlass::Status::kSuccess) {
-    throw std::runtime_error("cutlass gemm failed, error code");
+    throw std::runtime_error("cutlass cannot run, status: " +
+                             std::to_string((int)status));
   }
 
   return out;
