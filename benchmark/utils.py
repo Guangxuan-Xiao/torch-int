@@ -1,6 +1,7 @@
 import torch
 import torch.backends.cudnn as cudnn
 
+
 @torch.no_grad()
 def bench_model(model, dummy_input, device='cuda', num_iter=1000):
     cudnn.benchmark = True
@@ -26,10 +27,11 @@ def bench_model(model, dummy_input, device='cuda', num_iter=1000):
         f"Peak memory usage: {torch.cuda.max_memory_allocated() / 1024 / 1024:.2f} MB")
     return start.elapsed_time(end) / num_iter, torch.cuda.max_memory_allocated() / 1024 / 1024
 
+
 def bench_func(func, args, num_iter=1000):
     cudnn.benchmark = True
     # Warm up
-    for i in range(num_iter):
+    for i in range(100):
         func(*args)
     torch.cuda.synchronize()
     start = torch.cuda.Event(enable_timing=True)
@@ -48,6 +50,7 @@ def bench_func(func, args, num_iter=1000):
         f"Peak memory usage: {torch.cuda.max_memory_allocated() / 1024 / 1024:.2f} MB")
     return start.elapsed_time(end) / num_iter, torch.cuda.max_memory_allocated() / 1024 / 1024
 
+
 def bench_func_latency(func, args, num_iter=1000):
     cudnn.benchmark = True
     # Warm up
@@ -62,5 +65,5 @@ def bench_func_latency(func, args, num_iter=1000):
     end.record()
     torch.cuda.synchronize()
     print(
-        f"Average inference time: {start.elapsed_time(end) / num_iter:.2f} ms")
+        f"Average inference time: {start.elapsed_time(end) / num_iter} ms")
     return start.elapsed_time(end) / num_iter
