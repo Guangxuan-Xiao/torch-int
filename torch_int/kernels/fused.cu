@@ -28,7 +28,7 @@ dq_add_layernorm_q(
   auto ln_output_fp32 =
       torch::layer_norm(residual_output_fp32, {residual_output_fp32.size(-1)},
                         gamma, beta, epsilon);
-  ln_output_fp32.clamp_(-128, 127);
+  ln_output_fp32.clamp_(-128, 127).round_();
   auto ln_output_int8 = ln_output_fp32.to(torch::kChar);
   return std::make_tuple(residual_output_fp32, ln_output_int8);
 }

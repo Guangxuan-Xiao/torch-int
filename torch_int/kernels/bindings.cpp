@@ -21,5 +21,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("linear_a8_w8_b8_o8", &linear_a8_w8_b8_o8, "Linear (INT8)");
   m.def("dq_add_layernorm_q", &dq_add_layernorm_q,
         "DQ + Add + LayerNorm (INT8)");
-  m.def("bmm_s8t_s8n_s8t", &bmm_s8t_s8n_s8t, "BMM (INT8) A x B.T");
+  m.def("bmm_s8t_s8n_s8t", &bmm_s8t_s8n_s8t, "BMM (INT8 IO) A x B.T");
+  m.def("bmm_s8t_s8n_s32t", &bmm_s8t_s8n_s32t,
+        "BMM (INT8 In Int32 Out) A x B.T");
 }
