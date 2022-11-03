@@ -1,5 +1,6 @@
 import torch
 from .._CUDA import gemm_cutlass as gemm
+from .._CUDA import linear_a8_w8_b32_o32, linear_relu_a8_w8_b8_o8, linear_a8_w8_b8_o8
 from ..functional.quantization import (
     quantize_weight_per_channel_min_max,
     dynamic_quantize_activation_per_tensor_min_max,
@@ -9,6 +10,90 @@ from ..functional.quantization import (
     fake_quantize_activation_per_tensor_min_max,
     fake_quantize_activation_per_token_min_max,
 )
+
+
+class W8A8B32O32Linear(torch.nn.Module):
+    def __init__(self, in_features, out_features):
+        super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+
+        self.register_buffer('weight', torch.randint(-127, 127, (self.out_features,
+                                                                 self.in_features), dtype=torch.int8, requires_grad=False))
+        self.register_buffer('bias', torch.zeros(
+            (1, self.out_features), dtype=torch.int32, requires_grad=False))
+
+    def to(self, *args, **kwargs):
+        super().to(*args, **kwargs)
+        self.weight = self.weight.to(*args, **kwargs)
+        self.bias = self.bias.to(*args, **kwargs)
+        return self
+
+    @torch.no_grad()
+    def forward(self, x):
+        x_shape = x.shape
+        x = x.view(-1, x_shape[-1])
+        y = linear_a8_w8_b32_o32(x, self.weight, self.bias)
+        y = y.view(*x_shape[:-1], -1)
+        return y
+
+
+class W8A8B8O8Linear(torch.nn.Module):
+    def __init__(self, in_features, out_features, output_scale: float, bias_scale: float):
+        super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+
+        self.register_buffer('weight', torch.randint(-127, 127, (self.out_features,
+                                                                 self.in_features), dtype=torch.int8, requires_grad=False))
+        self.register_buffer('bias', torch.zeros(
+            (1, self.out_features), dtype=torch.int8, requires_grad=False))
+        self.out_scale = output_scale
+        self.bias_scale = bias_scale
+
+    def to(self, *args, **kwargs):
+        super().to(*args, **kwargs)
+        self.weight = self.weight.to(*args, **kwargs)
+        self.bias = self.bias.to(*args, **kwargs)
+        return self
+
+    @torch.no_grad()
+    def forward(self, x):
+        x_shape = x.shape
+        x = x.view(-1, x_shape[-1])
+        y = linear_a8_w8_b8_o8(x, self.weight, self.bias,
+                               self.out_scale, self.bias_scale)
+        y = y.view(*x_shape[:-1], -1)
+        return y
+
+
+class W8A8B8O8LinearReLU(torch.nn.Module):
+    def __init__(self, in_features, out_features, output_scale: float, bias_scale: float):
+        super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+
+        self.register_buffer('weight', torch.randint(-127, 127, (self.out_features,
+                                                                 self.in_features), dtype=torch.int8, requires_grad=False))
+        self.register_buffer('bias', torch.zeros(
+            (1, self.out_features), dtype=torch.int8, requires_grad=False))
+        self.out_scale = output_scale
+        self.bias_scale = bias_scale
+
+    def to(self, *args, **kwargs):
+        super().to(*args, **kwargs)
+        self.weight = self.weight.to(*args, **kwargs)
+        self.bias = self.bias.to(*args, **kwargs)
+        return self
+
+    @torch.no_grad()
+    def forward(self, x):
+        x_shape = x.shape
+        x = x.view(-1, x_shape[-1])
+        y = linear_relu_a8_w8_b8_o8(x, self.weight, self.bias,
+                                    self.out_scale, self.bias_scale)
+        y = y.view(*x_shape[:-1], -1)
+        return y
 
 
 class Int8Linear(torch.nn.Module):
