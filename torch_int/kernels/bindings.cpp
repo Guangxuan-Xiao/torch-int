@@ -1,3 +1,4 @@
+#include "include/bmm.h"
 #include "include/fused.h"
 #include "include/gemm.h"
 #include "include/linear.h"
@@ -18,6 +19,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "Linear ReLU (INT8)");
   m.def("linear_a8_w8_b32_o32", &linear_a8_w8_b32_o32, "Linear (INT32)");
   m.def("linear_a8_w8_b8_o8", &linear_a8_w8_b8_o8, "Linear (INT8)");
-  m.def("dq_add_layernorm_q",
-        &dq_add_layernorm_q, "DQ + Add + LayerNorm (INT8)");
+  m.def("dq_add_layernorm_q", &dq_add_layernorm_q,
+        "DQ + Add + LayerNorm (INT8)");
+  m.def("bmm_s8t_s8n_s8t", &bmm_s8t_s8n_s8t, "BMM (INT8) A x B.T");
 }

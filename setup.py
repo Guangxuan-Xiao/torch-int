@@ -9,6 +9,7 @@ setup(
         cpp_extension.CUDAExtension(
             name='torch_int._CUDA',
             sources=[
+                'torch_int/kernels/bmm.cu',
                 'torch_int/kernels/linear.cu',
                 'torch_int/kernels/fused.cu',
                 'torch_int/kernels/bindings.cpp',

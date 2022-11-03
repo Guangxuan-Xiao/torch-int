@@ -2,6 +2,7 @@ import torch
 from torch import nn
 from transformers.models.opt.modeling_opt import OPTDecoderLayer, OPTAttention
 from typing import List, Optional, Tuple, Union
+from torch_int.nn.linear import W8A8B32O32Linear, W8A8B8O8Linear, W8A8B8O8LinearReLU
 
 
 class Int8OPTAttention(nn.Module):
@@ -18,7 +19,6 @@ class Int8OPTAttention(nn.Module):
         super().__init__()
         self.embed_dim = embed_dim
         self.num_heads = num_heads
-        self.dropout = dropout
         self.head_dim = embed_dim // num_heads
 
         if (self.head_dim * num_heads) != self.embed_dim:
@@ -32,11 +32,12 @@ class Int8OPTAttention(nn.Module):
         self.k_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
         self.v_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
         self.q_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
-        self.out_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
+        self.out_proj = W8A8B32O32Linear(embed_dim, embed_dim)
 
     def _shape(self, tensor: torch.Tensor, seq_len: int, bsz: int):
         return tensor.view(bsz, seq_len, self.num_heads, self.head_dim).transpose(1, 2).contiguous()
 
+    @torch.no_grad()
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -47,7 +48,7 @@ class Int8OPTAttention(nn.Module):
         output_attentions: bool = False,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         """Input shape: Batch x Time x Channel"""
-
+        assert self.training is False, "Int8OPTAttention is not supported in training mode"
         # if key_value_states are provided this layer is used as a cross-attention layer
         # for the decoder
         is_cross_attention = key_value_states is not None
@@ -143,8 +144,7 @@ class Int8OPTAttention(nn.Module):
         else:
             attn_weights_reshaped = None
 
-        attn_probs = nn.functional.dropout(
-            attn_weights, p=self.dropout, training=self.training)
+        attn_probs = attn_weights
 
         attn_output = torch.bmm(attn_probs, value_states)
 

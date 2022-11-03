@@ -13,6 +13,7 @@ from ..functional.quantization import (
 
 
 class W8A8B32O32Linear(torch.nn.Module):
+    # For fc2 and out_proj
     def __init__(self, in_features, out_features):
         super().__init__()
         self.in_features = in_features
@@ -39,6 +40,7 @@ class W8A8B32O32Linear(torch.nn.Module):
 
 
 class W8A8B8O8Linear(torch.nn.Module):
+    # For qkv_proj
     def __init__(self, in_features, out_features, output_scale: float, bias_scale: float):
         super().__init__()
         self.in_features = in_features
@@ -68,6 +70,7 @@ class W8A8B8O8Linear(torch.nn.Module):
 
 
 class W8A8B8O8LinearReLU(torch.nn.Module):
+    # For fc1
     def __init__(self, in_features, out_features, output_scale: float, bias_scale: float):
         super().__init__()
         self.in_features = in_features
