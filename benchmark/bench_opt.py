@@ -10,10 +10,12 @@ if __name__ == '__main__':
     parser.add_argument('--precision', type=str, default='int8')
     parser.add_argument('--batch-size', type=int, default=8)
     parser.add_argument('--seq-len', type=int, default=512)
+    parser.add_argument('--model-path-prefix', type=str,
+                        default='benchmark/opt_configs')
     args = parser.parse_args()
 
     print(args)
-    model_path = f'/dataset/opt/{args.model}'
+    model_path = f'{args.model_path_prefix}/{args.model}'
     config = OPTConfig.from_pretrained(model_path)
     input_ids = torch.randint(0, config.vocab_size,
                               (args.batch_size, args.seq_len))
