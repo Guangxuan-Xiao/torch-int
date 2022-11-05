@@ -12,6 +12,99 @@ from ..functional.quantization import (
 )
 
 
+class W8A8B8O8Linear(torch.nn.Module):
+    # For qkv_proj
+    def __init__(self, in_features, out_features, alpha=1.0, beta=1.0):
+        super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+
+        self.register_buffer('weight', torch.randint(-127, 127, (self.out_features,
+                                                                 self.in_features), dtype=torch.int8, requires_grad=False))
+        self.register_buffer('bias', torch.zeros(
+            (1, self.out_features), dtype=torch.int8, requires_grad=False))
+        self.alpha = alpha
+        self.beta = beta
+
+    def to(self, *args, **kwargs):
+        super().to(*args, **kwargs)
+        self.weight = self.weight.to(*args, **kwargs)
+        self.bias = self.bias.to(*args, **kwargs)
+        return self
+
+    @torch.no_grad()
+    def forward(self, x):
+        x_shape = x.shape
+        x = x.view(-1, x_shape[-1])
+        y = linear_a8_w8_b8_o8(x, self.weight, self.bias,
+                               self.alpha, self.beta)
+        y = y.view(*x_shape[:-1], -1)
+        return y
+
+    @staticmethod
+    def from_float(module: torch.nn.Linear, input_scale, output_scale):
+        int8_module = W8A8B8O8Linear(
+            module.in_features, module.out_features)
+        weight_scale = module.weight.abs().max().item() / 127
+        beta_scale = module.bias.abs().max().item() / 127
+        int8_weight = (module.weight / weight_scale).round().to(torch.int8)
+        int8_bias = (module.bias / beta_scale).round().to(torch.int8)
+        alpha = input_scale * weight_scale / output_scale
+        beta = beta_scale / output_scale
+        int8_module.weight.set_(int8_weight)
+        int8_module.bias.set_(int8_bias)
+        int8_module.alpha = alpha
+        int8_module.beta = beta
+        return int8_module
+
+
+class W8A8B8O8LinearReLU(torch.nn.Module):
+    # For fc1
+    def __init__(self, in_features, out_features, alpha=1.0, beta=1.0):
+        super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+
+        self.register_buffer('weight', torch.randint(-127, 127, (self.out_features,
+                                                                 self.in_features), dtype=torch.int8, requires_grad=False))
+        self.register_buffer('bias', torch.zeros(
+            (1, self.out_features), dtype=torch.int8, requires_grad=False))
+        self.alpha = alpha
+        self.beta = beta
+
+    def to(self, *args, **kwargs):
+        super().to(*args, **kwargs)
+        self.weight = self.weight.to(*args, **kwargs)
+        self.bias = self.bias.to(*args, **kwargs)
+        return self
+
+    @torch.no_grad()
+    def forward(self, x):
+        x_shape = x.shape
+        x = x.view(-1, x_shape[-1])
+        y = linear_relu_a8_w8_b8_o8(x, self.weight, self.bias,
+                                    self.alpha, self.beta)
+        y = y.view(*x_shape[:-1], -1)
+        return y
+
+    @staticmethod
+    def from_float(module: torch.nn.Linear, input_scale, output_scale):
+        # TODO: add zero-point to prevent the bit waste
+        int8_module = W8A8B8O8LinearReLU(
+            module.in_features, module.out_features)
+        weight_scale = module.weight.abs().max().item() / 127
+        beta_scale = module.bias.abs().max().item() / 127
+        int8_weight = (module.weight / weight_scale).round().to(torch.int8)
+        int8_bias = (module.bias / beta_scale).round().to(torch.int8)
+        alpha = input_scale * weight_scale / output_scale
+        beta = beta_scale / output_scale
+        int8_module.weight.set_(int8_weight)
+        int8_module.bias.set_(int8_bias)
+        int8_module.alpha = alpha
+        int8_module.beta = beta
+        return int8_module
+
+
 class W8A8B32O32Linear(torch.nn.Module):
     # For fc2 and out_proj
     def __init__(self, in_features, out_features):
@@ -41,7 +134,7 @@ class W8A8B32O32Linear(torch.nn.Module):
 
 class W8A8B32O32LinearWithScaling(torch.nn.Module):
     # For fc2 and out_proj
-    def __init__(self, in_features, out_features):
+    def __init__(self, in_features, out_features, alpha=1.0, beta=1.0):
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
@@ -50,8 +143,8 @@ class W8A8B32O32LinearWithScaling(torch.nn.Module):
                                                                  self.in_features), dtype=torch.int8, requires_grad=False))
         self.register_buffer('bias', torch.zeros(
             (1, self.out_features), dtype=torch.int32, requires_grad=False))
-        self.out_scale = 1.0
-        self.bias_scale = 1.0
+        self.alpha = alpha
+        self.beta = beta
 
     def to(self, *args, **kwargs):
         super().to(*args, **kwargs)
@@ -64,69 +157,26 @@ class W8A8B32O32LinearWithScaling(torch.nn.Module):
         x_shape = x.shape
         x = x.view(-1, x_shape[-1])
         y = linear_a8_w8_b32_o32_with_scaling(
-            x, self.weight, self.bias, self.out_scale, self.bias_scale)
+            x, self.weight, self.bias, self.alpha, self.beta)
         y = y.view(*x_shape[:-1], -1)
         return y
 
-
-class W8A8B8O8Linear(torch.nn.Module):
-    # For qkv_proj
-    def __init__(self, in_features, out_features):
-        super().__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-
-        self.register_buffer('weight', torch.randint(-127, 127, (self.out_features,
-                                                                 self.in_features), dtype=torch.int8, requires_grad=False))
-        self.register_buffer('bias', torch.zeros(
-            (1, self.out_features), dtype=torch.int8, requires_grad=False))
-        self.out_scale = 1.0
-        self.bias_scale = 1.0
-
-    def to(self, *args, **kwargs):
-        super().to(*args, **kwargs)
-        self.weight = self.weight.to(*args, **kwargs)
-        self.bias = self.bias.to(*args, **kwargs)
-        return self
-
-    @torch.no_grad()
-    def forward(self, x):
-        x_shape = x.shape
-        x = x.view(-1, x_shape[-1])
-        y = linear_a8_w8_b8_o8(x, self.weight, self.bias,
-                               self.out_scale, self.bias_scale)
-        y = y.view(*x_shape[:-1], -1)
-        return y
-
-
-class W8A8B8O8LinearReLU(torch.nn.Module):
-    # For fc1
-    def __init__(self, in_features, out_features):
-        super().__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-
-        self.register_buffer('weight', torch.randint(-127, 127, (self.out_features,
-                                                                 self.in_features), dtype=torch.int8, requires_grad=False))
-        self.register_buffer('bias', torch.zeros(
-            (1, self.out_features), dtype=torch.int8, requires_grad=False))
-        self.out_scale = 1.0
-        self.bias_scale = 1.0
-
-    def to(self, *args, **kwargs):
-        super().to(*args, **kwargs)
-        self.weight = self.weight.to(*args, **kwargs)
-        self.bias = self.bias.to(*args, **kwargs)
-        return self
-
-    @torch.no_grad()
-    def forward(self, x):
-        x_shape = x.shape
-        x = x.view(-1, x_shape[-1])
-        y = linear_relu_a8_w8_b8_o8(x, self.weight, self.bias,
-                                    self.out_scale, self.bias_scale)
-        y = y.view(*x_shape[:-1], -1)
-        return y
+    @staticmethod
+    def from_float(module: torch.nn.Linear, input_scale, output_scale):
+        int8_module = W8A8B32O32LinearWithScaling(
+            module.in_features, module.out_features)
+        weight_scale = module.weight.abs().max().item() / 127
+        beta_scale = module.bias.abs().max().item() / (2**31 - 1)
+        int8_weight = (module.weight / weight_scale).round().to(torch.int8)
+        int32_bias = (module.bias.double() /
+                      beta_scale).round().to(torch.int32)
+        alpha = input_scale * weight_scale / output_scale
+        beta = beta_scale / output_scale
+        int8_module.weight.set_(int8_weight)
+        int8_module.bias.set_(int32_bias)
+        int8_module.alpha = alpha
+        int8_module.beta = beta
+        return int8_module
 
 
 class Int8Linear(torch.nn.Module):

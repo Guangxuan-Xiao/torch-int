@@ -13,7 +13,7 @@
 #include <cutlass/util/host_tensor.h>
 
 torch::Tensor bmm_s8t_s8n_s8t(torch::Tensor A, torch::Tensor B,
-                              float output_scale) {
+                              float alpha) {
   int batch_size = A.size(0);
   int M = A.size(1);
   int N = B.size(1);
@@ -60,7 +60,7 @@ torch::Tensor bmm_s8t_s8n_s8t(torch::Tensor A, torch::Tensor B,
                                     batch_stride_C,
                                     {C.data_ptr<ElementOutput>(), ldc},
                                     batch_stride_C,
-                                    {output_scale},
+                                    {alpha},
                                     batch_size});
 
   if (status != cutlass::Status::kSuccess) {

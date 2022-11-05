@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from transformers.models.opt.modeling_opt import OPTConfig, OPTForCausalLM, OPTModel, OPTPreTrainedModel, OPTLearnedPositionalEmbedding, _make_causal_mask, _expand_mask
+from transformers.models.opt.modeling_opt import OPTConfig, OPTForCausalLM, OPTModel, OPTPreTrainedModel, OPTLearnedPositionalEmbedding, _make_causal_mask, _expand_mask, OPTAttention
 from transformers.modeling_outputs import BaseModelOutputWithPast
 from typing import List, Optional, Tuple, Union
 from .linear import W8A8B32O32LinearWithScaling, W8A8B8O8Linear, W8A8B8O8LinearReLU
@@ -39,6 +39,18 @@ class Int8OPTAttention(nn.Module):
         self.v_proj = W8A8B8O8Linear(embed_dim, embed_dim)
         self.q_proj = W8A8B8O8Linear(embed_dim, embed_dim)
         self.out_proj = W8A8B32O32LinearWithScaling(embed_dim, embed_dim)
+
+    @staticmethod
+    def from_float(module: OPTAttention, input_scale: float):
+        int8_module = Int8OPTAttention(module.embed_dim, module.num_heads)
+        int8_module.attention_weight_scale = module.attention_weight_scale
+        int8_module.attention_probs_scale = module.attention_probs_scale
+        int8_module.attention_output_scale = module.attention_output_scale
+        int8_module.k_proj = W8A8B8O8Linear.from_float(module.k_proj)
+        int8_module.v_proj = W8A8B8O8Linear.from_float(module.v_proj)
+        int8_module.q_proj = W8A8B8O8Linear.from_float(module.q_proj)
+        int8_module.out_proj = W8A8B32O32LinearWithScaling.from_float(module.out_proj)
+        return int8_module
 
     def _shape(self, tensor: torch.Tensor, seq_len: int, bsz: int):
         return tensor.view(bsz, seq_len, self.num_heads, self.head_dim).transpose(1, 2).contiguous()

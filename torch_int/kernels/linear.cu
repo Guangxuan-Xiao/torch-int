@@ -110,8 +110,8 @@ torch::Tensor linear_a8_w8_b32_o32(torch::Tensor input,  // INT8
 torch::Tensor linear_a8_w8_b32_o32_with_scaling(torch::Tensor input,  // INT8
                                                 torch::Tensor weight, // INT8
                                                 torch::Tensor bias,   // INT32
-                                                float output_scale,   // FP32
-                                                float bias_scale      // FP32
+                                                float alpha,   // FP32
+                                                float beta      // FP32
 ) {
   auto M = input.size(0);
   auto N = weight.size(0);
@@ -165,7 +165,6 @@ torch::Tensor linear_a8_w8_b32_o32_with_scaling(torch::Tensor input,  // INT8
 
   // Initialize alpha and beta for dot product computation
   ElementComputeEpilogue alpha = ElementComputeEpilogue(output_scale);
-  ElementComputeEpilogue beta = ElementComputeEpilogue(bias_scale);
 
   typename Gemm::Arguments arguments{
       problem_size, // <- problem size of matrix multiplication
@@ -207,8 +206,8 @@ torch::Tensor linear_a8_w8_b32_o32_with_scaling(torch::Tensor input,  // INT8
 torch::Tensor linear_a8_w8_b8_o8(torch::Tensor input,  // INT8
                                  torch::Tensor weight, // INT8
                                  torch::Tensor bias,   // INT8
-                                 float output_scale,   // FP32
-                                 float bias_scale      // FP32
+                                 float alpha,   // FP32
+                                 float beta      // FP32
 ) {
   auto M = input.size(0);
   auto N = weight.size(0);
@@ -259,7 +258,6 @@ torch::Tensor linear_a8_w8_b8_o8(torch::Tensor input,  // INT8
 
   // Initialize alpha and beta for dot product computation
   ElementComputeEpilogue alpha = ElementComputeEpilogue(output_scale);
-  ElementComputeEpilogue beta = ElementComputeEpilogue(bias_scale);
 
   typename Gemm::Arguments arguments{
       problem_size, // <- problem size of matrix multiplication
@@ -304,8 +302,8 @@ torch::Tensor linear_a8_w8_b8_o8(torch::Tensor input,  // INT8
 torch::Tensor linear_relu_a8_w8_b8_o8(torch::Tensor input,  // INT8
                                       torch::Tensor weight, // INT8
                                       torch::Tensor bias,   // INT8
-                                      float output_scale,   // FP32
-                                      float bias_scale      // FP32
+                                      float alpha,   // FP32
+                                      float beta      // FP32
 ) {
   auto M = input.size(0);
   auto N = weight.size(0);
@@ -369,7 +367,6 @@ torch::Tensor linear_relu_a8_w8_b8_o8(torch::Tensor input,  // INT8
 
   // Initialize alpha and beta for dot product computation
   ElementComputeEpilogue alpha = ElementComputeEpilogue(output_scale);
-  ElementComputeEpilogue beta = ElementComputeEpilogue(bias_scale);
 
   typename Gemm::Arguments arguments{
       problem_size, // <- problem size of matrix multiplication
