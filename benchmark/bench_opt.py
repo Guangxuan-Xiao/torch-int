@@ -6,10 +6,10 @@ import argparse
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=str, default='opt-13b')
-    parser.add_argument('--precision', type=str, default='int8')
-    parser.add_argument('--batch-size', type=int, default=8)
-    parser.add_argument('--seq-len', type=int, default=512)
+    parser.add_argument('--model', type=str, default='opt-125m')
+    parser.add_argument('--precision', type=str, default='int8-fp32')
+    parser.add_argument('--batch-size', type=int, default=1)
+    parser.add_argument('--seq-len', type=int, default=256)
     parser.add_argument('--model-path-prefix', type=str,
                         default='benchmark/opt_configs')
     args = parser.parse_args()

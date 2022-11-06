@@ -1,4 +1,4 @@
-models="opt-125m opt-1.3b opt-2.7b opt-6.7b opt-13b opt-30b"
+models="opt-125m opt-1.3b opt-2.7b opt-6.7b opt-13b" # opt-30b
 precisions="fp16 int8-fp16"
 batch_sizes="1 2 4 8 16 32"
 seq_lens="512 256 1024 128"

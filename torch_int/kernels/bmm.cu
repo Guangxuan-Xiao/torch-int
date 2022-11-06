@@ -12,14 +12,14 @@
 #include <cutlass/numeric_types.h>
 #include <cutlass/util/host_tensor.h>
 
-torch::Tensor bmm_s8t_s8n_s8t(torch::Tensor A, torch::Tensor B,
-                              float alpha) {
+torch::Tensor bmm_s8t_s8n_s8t(torch::Tensor A, torch::Tensor B, float alpha) {
   int batch_size = A.size(0);
   int M = A.size(1);
   int N = B.size(1);
   int K = A.size(2);
 
-  auto C = torch::empty({batch_size, M, N}, A.options());
+  auto C = torch::empty({batch_size, M, N},
+                        torch::dtype(torch::kInt8).device(A.device()));
   int lda = A.size(2);
   int ldb = B.size(2);
   int ldc = C.size(2);
@@ -34,8 +34,9 @@ torch::Tensor bmm_s8t_s8n_s8t(torch::Tensor A, torch::Tensor B,
   using ElementAccumulator = int32_t;
   using ElementComputeEpilogue = float;
 
-  using EpilogueOp = cutlass::epilogue::thread::FastLinearCombinationClamp<
+  using EpilogueOp = cutlass::epilogue::thread::LinearCombinationClamp<
       ElementOutput, 128 / cutlass::sizeof_bits<ElementOutput>::value,
+      ElementAccumulator, ElementComputeEpilogue,
       cutlass::epilogue::thread::ScaleType::NoBetaScaling>;
 
   using Gemm = cutlass::gemm::device::GemmBatched<
@@ -68,7 +69,6 @@ torch::Tensor bmm_s8t_s8n_s8t(torch::Tensor A, torch::Tensor B,
   }
   return C;
 }
-
 
 torch::Tensor bmm_s8t_s8n_s32t(torch::Tensor A, torch::Tensor B) {
   int batch_size = A.size(0);
