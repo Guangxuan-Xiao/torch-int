@@ -46,7 +46,7 @@ torch::Tensor gemm_cutlass(torch::Tensor input, torch::Tensor weight) {
   auto output_size = cutlass::MatrixCoord(M, N);
 
   auto device = input.device();
-  auto out = torch::empty({M, N}, torch::dtype(torch::kInt32).device(device));
+  auto out = torch::zeros({M, N}, torch::dtype(torch::kInt32).device(device));
 
   // constexpr int kSparse = Gemm::kSparse;
   // How many elements of A are covered per ElementE

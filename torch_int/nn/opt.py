@@ -170,11 +170,8 @@ class Int8OPTAttention(nn.Module):
         attn_probs = attn_probs.to(torch.int8)
 
         value_states = value_states.transpose(1, 2).contiguous()
-        # value_states = value_states.clone()
         attn_output = self.pv_bmm(attn_probs, value_states)
-        # print('TEST')
-        # attn_output = torch.bmm(attn_probs, value_states)
-        # print(attn_output)
+
         if attn_output.size() != (bsz * self.num_heads, tgt_len, self.head_dim):
             raise ValueError(
                 f"`attn_output` should be of size {(bsz, self.num_heads, tgt_len, self.head_dim)}, but is"

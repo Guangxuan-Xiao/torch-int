@@ -18,7 +18,7 @@ torch::Tensor bmm_s8t_s8n_s8t(torch::Tensor A, torch::Tensor B, float alpha) {
   int N = B.size(1);
   int K = A.size(2);
 
-  auto C = torch::empty({batch_size, M, N},
+  auto C = torch::zeros({batch_size, M, N},
                         torch::dtype(torch::kInt8).device(A.device()));
   int lda = A.size(2);
   int ldb = B.size(2);
@@ -76,7 +76,7 @@ torch::Tensor bmm_s8t_s8n_s32t(torch::Tensor A, torch::Tensor B) {
   int N = B.size(1);
   int K = A.size(2);
 
-  auto C = torch::empty({batch_size, M, N},
+  auto C = torch::zeros({batch_size, M, N},
                         torch::dtype(torch::kInt32).device(A.device()));
   int lda = A.size(2);
   int ldb = B.size(2);
