@@ -56,8 +56,8 @@ class W8A8B8O8Linear(torch.nn.Module):
         int8_bias = (module.bias / bias_scale).round().to(torch.int8)
         alpha = input_scale * weight_scale / output_scale
         beta = bias_scale / output_scale
-        int8_module.weight.set_(int8_weight)
-        int8_module.bias.set_(int8_bias)
+        int8_module.weight.copy_(int8_weight)
+        int8_module.bias.copy_(int8_bias)
         int8_module.alpha = alpha
         int8_module.beta = beta
         int8_module.input_scale = input_scale
@@ -107,8 +107,8 @@ class W8A8B8O8LinearReLU(torch.nn.Module):
         int8_bias = (module.bias / bias_scale).round().to(torch.int8)
         alpha = input_scale * weight_scale / output_scale
         beta = bias_scale / output_scale
-        int8_module.weight.set_(int8_weight)
-        int8_module.bias.set_(int8_bias)
+        int8_module.weight.copy_(int8_weight)
+        int8_module.bias.copy_(int8_bias)
         int8_module.alpha = alpha
         int8_module.beta = beta
         int8_module.input_scale = input_scale
@@ -185,8 +185,8 @@ class W8A8B32O32Linear(torch.nn.Module):
                       bias_scale).round().to(torch.int32)
         alpha = input_scale * weight_scale / output_scale
         beta = bias_scale / output_scale
-        int8_module.weight.set_(int8_weight)
-        int8_module.bias.set_(int32_bias)
+        int8_module.weight.copy_(int8_weight)
+        int8_module.bias.copy_(int32_bias)
         int8_module.alpha = alpha
         int8_module.beta = beta
         int8_module.input_scale = input_scale
@@ -239,7 +239,7 @@ class W8A8BFP32OFP32Linear(torch.nn.Module):
         int8_weight = (module.weight / weight_scale).round().to(torch.int8)
         alpha = input_scale * weight_scale
         beta = 1
-        int8_module.weight.set_(int8_weight)
+        int8_module.weight.copy_(int8_weight)
         int8_module.bias.copy_(module.bias)
         int8_module.alpha = alpha
         int8_module.beta = beta

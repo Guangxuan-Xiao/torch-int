@@ -40,12 +40,7 @@ def test_opt_decoder_layer():
     int8_layer = Int8OPTDecoderLayer.from_float(
         layer, attn_input_scale, q_output_scale, k_output_scale, v_output_scale, out_input_scale, fc1_input_scale, fc2_input_scale).cuda()
     int8_layer.eval()
-    # q_act_dict = {}
-    # for name, module in int8_attn.named_modules():
-    #     if isinstance(module, (W8A8BFP32OFP32Linear, W8A8B8O8Linear, W8A8B8O8LinearReLU)):
-    #         module.register_forward_hook(
-    #             partial(store_act, act_dict=q_act_dict, name=name))
-    # q_x = (x / x_scale).round().to(torch.int8)
+
     y_hat = int8_layer(x.cuda())[0].cpu()
 
     # # ic(y_hat)

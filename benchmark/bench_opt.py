@@ -11,7 +11,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch-size', type=int, default=1)
     parser.add_argument('--seq-len', type=int, default=256)
     parser.add_argument('--model-path-prefix', type=str,
-                        default='benchmark/opt_configs')
+                        default='opt_configs')
     args = parser.parse_args()
 
     print(args)
