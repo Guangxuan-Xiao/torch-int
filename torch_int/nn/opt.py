@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from transformers.models.opt.modeling_opt import OPTConfig, OPTForCausalLM, OPTModel, OPTPreTrainedModel, OPTLearnedPositionalEmbedding, _make_causal_mask, _expand_mask, OPTAttention
+from transformers.models.opt.modeling_opt import OPTConfig, OPTForCausalLM, OPTModel, OPTPreTrainedModel, OPTLearnedPositionalEmbedding, _make_causal_mask, _expand_mask, OPTAttention, OPTDecoderLayer
 from transformers.modeling_outputs import BaseModelOutputWithPast
 from typing import List, Optional, Tuple, Union
 from .linear import W8A8BFP32OFP32Linear, W8A8B8O8Linear, W8A8B8O8LinearReLU
@@ -192,20 +192,46 @@ class Int8OPTAttention(nn.Module):
 
 
 class Int8OPTDecoderLayer(nn.Module):
-    def __init__(self, config):
+    def __init__(self, embed_dim, num_attention_heads, ffn_dim):
         super().__init__()
-        self.embed_dim = config.hidden_size
+        self.embed_dim = embed_dim
         self.self_attn = Int8OPTAttention(
             embed_dim=self.embed_dim,
-            num_heads=config.num_attention_heads
+            num_heads=num_attention_heads
         )
 
         self.self_attn_layer_norm = LayerNormQ(
             self.embed_dim)
-        self.fc1 = W8A8B8O8LinearReLU(self.embed_dim, config.ffn_dim)
+        self.fc1 = W8A8B8O8LinearReLU(self.embed_dim, ffn_dim)
         self.fc2 = W8A8BFP32OFP32Linear(
-            config.ffn_dim, self.embed_dim)
+            ffn_dim, self.embed_dim)
         self.final_layer_norm = LayerNormQ(self.embed_dim)
+
+    @staticmethod
+    def from_float(module: OPTDecoderLayer,
+                   attn_input_scale: float,
+                   q_output_scale: float,
+                   k_output_scale: float,
+                   v_output_scale: float,
+                   out_input_scale: float,
+                   fc1_input_scale: float,
+                   fc2_input_scale: float):
+        int8_module = Int8OPTDecoderLayer(
+            module.embed_dim,
+            module.self_attn.num_heads,
+            module.fc1.out_features
+        )
+        int8_module.self_attn_layer_norm = LayerNormQ.from_float(
+            module.self_attn_layer_norm, attn_input_scale)
+        int8_module.self_attn = Int8OPTAttention.from_float(
+            module.self_attn, attn_input_scale, q_output_scale, k_output_scale, v_output_scale, out_input_scale)
+        int8_module.final_layer_norm = LayerNormQ.from_float(
+            module.final_layer_norm, fc1_input_scale)
+        int8_module.fc1 = W8A8B8O8LinearReLU.from_float(
+            module.fc1, fc1_input_scale, fc2_input_scale)
+        int8_module.fc2 = W8A8BFP32OFP32Linear.from_float(
+            module.fc2, fc2_input_scale)
+        return int8_module
 
     def forward(
         self,

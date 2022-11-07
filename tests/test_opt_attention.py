@@ -1,5 +1,5 @@
 import torch
-from transformers.models.opt.modeling_opt import OPTAttention
+from transformers.models.opt.modeling_opt import OPTAttention, OPTConfig
 from torch_int.nn.opt import Int8OPTAttention
 from torch_int.nn.linear import W8A8BFP32OFP32Linear, W8A8B8O8Linear, W8A8B8O8LinearReLU
 from typing import Tuple
@@ -15,9 +15,10 @@ def store_act(module, x, y, act_dict, name):
     act_dict[name] = (x, y)
 
 
+
 @torch.no_grad()
 def test_opt_attention():
-    B, L, D, H = 1, 16, 16, 1
+    B, L, D, H = 1, 16, 16, 1    
     x = torch.randn(B, L, D)
     x_scale = x.abs().max() / 127
     attn = OPTAttention(D, H)
