@@ -1,5 +1,5 @@
 import torch
-from torch_int._CUDA import bmm_s8t_s8n_s8t, bmm_s8t_s8n_s32t
+from torch_int._CUDA import bmm_s8t_s8n_s8t, bmm_s8t_s8n_s32t, bmm_s8t_s8n_f32t
 from icecream import ic
 
 
@@ -14,6 +14,20 @@ def test_bmm_s8t_s8n_s8t():
     c_gt = torch.bmm(a.float(), b.float().transpose(1, 2)) * scale
     c_gt = c_gt.clamp(-128, 127).round().to(torch.int8)
     ic(torch.allclose(c_gt, c.cpu()))
+
+
+@torch.no_grad()
+def test_bmm_s8t_s8n_f32t():
+    # used by attn_prob x value
+    B, M, K, N = 1, 512, 512, 32
+    a = torch.randint(-128, 127, (B, M, K), dtype=torch.int8).cuda()
+    b = torch.randint(-128, 127, (B, N, K), dtype=torch.int8).cuda()
+    scale = 0.001
+    c = bmm_s8t_s8n_f32t(a, b, scale)
+    ic(c)
+    c_gt = torch.bmm(a.float(), b.float().transpose(1, 2)) * scale
+    ic(c_gt)
+    ic(torch.mean((c_gt - c) ** 2))
 
 
 @torch.no_grad()
@@ -90,22 +104,7 @@ def test_bmm_s8t_s8n_s8t_2():
     c1 = bmm_s8t_s8n_s8t(a, b1, scale)
     ic(c1)
     ic(torch.mean((c_gt.float() - c1.float()) ** 2))
-    # b1 = b.transpose(1, 2).contiguous()
-    # c1 = bmm_s8t_s8n_s8t(a, b1, scale)
-    # ic(c1)
-    # ic(torch.mean((c_gt.float() - c1.float()) ** 2))
-    # b1 = b.transpose(1, 2).contiguous()
-    # c1 = bmm_s8t_s8n_s8t(a, b1, scale)
-    # ic(c1)
-    # ic(torch.mean((c_gt.float() - c1.float()) ** 2))
-    # b2 = b.permute(0, 2, 1).contiguous()
-    # c2 = bmm_s8t_s8n_s8t(a, b2, scale)
-    # ic(c2)
-    # ic(torch.mean((c_gt.float() - c2.float()) ** 2))
-    # b2 = b.permute(0, 2, 1).contiguous().clone()
-    # c2 = bmm_s8t_s8n_s8t(a, b2, scale)
-    # ic(c2)
-    # ic(torch.mean((c_gt.float() - c2.float()) ** 2))
+
 
 # (A_row V_row)_row ^ T = (V_row ^T A_row ^T)_row = (V^T_row A_col)_row
 # (A_row V_row)_row = (A_row V_col ^T)_row
@@ -124,7 +123,9 @@ def test_bmm_s8t_s8n_s32t():
 if __name__ == '__main__':
     # print('test_bmm_s8t_s8n_s8t')
     # test_bmm_s8t_s8n_s8t()
-    print('test_bmm_s8t_s8n_s8t_2')
-    test_bmm_s8t_s8n_s8t_2()
+    # print('test_bmm_s8t_s8n_s8t_2')
+    # test_bmm_s8t_s8n_s8t_2()
     # print('test_bmm_s8t_s8n_s32t')
     # test_bmm_s8t_s8n_s32t()
+    print('test_bmm_s8t_s8n_f32t')
+    test_bmm_s8t_s8n_f32t()

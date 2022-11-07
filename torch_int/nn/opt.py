@@ -6,7 +6,7 @@ from typing import List, Optional, Tuple, Union
 from .linear import W8A8BFP32OFP32Linear, W8A8B8O8Linear, W8A8B8O8LinearReLU
 from .fused import LayerNormQ
 from transformers.utils import logging
-from .bmm import BMM_S8T_S8N_S8T, BMM_S8T_S8N_S32T
+from .bmm import BMM_S8T_S8N_S8T, BMM_S8T_S8N_F32T
 logger = logging.get_logger(__name__)
 
 
@@ -31,7 +31,7 @@ class Int8OPTAttention(nn.Module):
 
         self.attention_weight_scale = 1.0
 
-        self.qk_bmm = BMM_S8T_S8N_S32T()
+        self.qk_bmm = BMM_S8T_S8N_F32T(1.0)
         self.pv_bmm = BMM_S8T_S8N_S8T(1.0)
 
         self.k_proj = W8A8B8O8Linear(embed_dim, embed_dim)
@@ -40,6 +40,7 @@ class Int8OPTAttention(nn.Module):
         self.out_proj = W8A8BFP32OFP32Linear(embed_dim, embed_dim)
 
     @staticmethod
+    @torch.no_grad()
     def from_float(module: OPTAttention,
                    input_scale: float,
                    q_output_scale: float,
@@ -59,11 +60,12 @@ class Int8OPTAttention(nn.Module):
             module.v_proj, input_scale, v_output_scale)
         int8_module.out_proj = W8A8BFP32OFP32Linear.from_float(
             module.out_proj, out_input_scale)
-        int8_module.attention_weight_scale = q_output_scale * k_output_scale
+        int8_module.qk_bmm = BMM_S8T_S8N_F32T.from_scale(
+            q_output_scale, k_output_scale)
 
         # alpha = s_prob * s_v / s_out, where s_prob = 1 / 127
-        int8_module.pv_bmm.alpha = v_output_scale / \
-            (out_input_scale * 127)
+        int8_module.pv_bmm = BMM_S8T_S8N_S8T.from_scale(
+            1.0 / 127, v_output_scale, out_input_scale)
         return int8_module
 
     def _shape(self, tensor: torch.Tensor, seq_len: int, bsz: int):
@@ -118,9 +120,6 @@ class Int8OPTAttention(nn.Module):
 
         src_len = key_states.size(1)
         attn_weights = self.qk_bmm(query_states, key_states)
-
-        attn_weights = attn_weights.to(
-            torch.float32) * self.attention_weight_scale
 
         if attn_weights.size() != (bsz * self.num_heads, tgt_len, src_len):
             raise ValueError(
@@ -352,6 +351,7 @@ class Int8OPTDecoder(OPTPreTrainedModel):
                 layer, **decoder_layer_scales[i])
         return int8_module
 
+
 class Int8OPTModel(OPTPreTrainedModel):
     def __init__(self, config: OPTConfig):
         super().__init__(config)
@@ -362,6 +362,13 @@ class Int8OPTModel(OPTPreTrainedModel):
     set_input_embeddings = OPTModel.set_input_embeddings
     get_decoder = OPTModel.get_decoder
     forward = OPTModel.forward
+
+    @staticmethod
+    def from_float(module, decoder_layer_scales):
+        int8_module = Int8OPTModel(module.config)
+        int8_module.decoder = Int8OPTDecoder.from_float(
+            module.decoder, decoder_layer_scales)
+        return int8_module
 
 
 class Int8OPTForCausalLM(OPTPreTrainedModel):
@@ -377,6 +384,15 @@ class Int8OPTForCausalLM(OPTPreTrainedModel):
 
         # Initialize weights and apply final processing
         self.post_init()
+
+    @staticmethod
+    def from_float(module, decoder_layer_scales):
+        int8_module = Int8OPTForCausalLM(module.config)
+        int8_module.model = Int8OPTModel.from_float(
+            module.model, decoder_layer_scales)
+        int8_module.lm_head = module.lm_head
+        return int8_module
+
     get_input_embeddings = OPTForCausalLM.get_input_embeddings
     set_input_embeddings = OPTForCausalLM.set_input_embeddings
     get_output_embeddings = OPTForCausalLM.get_output_embeddings

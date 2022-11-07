@@ -11,6 +11,7 @@ class LayerNormQ(torch.nn.Module):
         self.register_buffer('bias', torch.zeros(dim, dtype=torch.float32))
 
     def forward(self, x):
+        x = x.to(self.weight.dtype)
         ln_output_fp = torch.nn.functional.layer_norm(
             x, x.shape[-1:], self.weight, self.bias, self.eps)
         ln_output_int8 = ln_output_fp.round().clamp(-128, 127).to(torch.int8)
