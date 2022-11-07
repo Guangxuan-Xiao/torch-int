@@ -41,18 +41,17 @@ class Evaluator:
 
 @torch.no_grad()
 def test_opt():
-    dataset = load_dataset('lambada', split='validation[:100]')
-    tokenizer = GPT2Tokenizer.from_pretrained('facebook/opt-125m')
+    dataset = load_dataset('lambada', split='validation[:1000]')
+    tokenizer = GPT2Tokenizer.from_pretrained('facebook/opt-13b')
     evaluator = Evaluator(dataset, tokenizer, 'cuda')
-    model_path = '/dataset/opt/opt-125m'
+    int8_model_path = '/dataset/opt/opt-13b-int8'
     # precision = 'fp16'
     precision = 'int8'
-    # precision = 'fp-int8'
     if precision == 'int8':
-        model = Int8OPTForCausalLM.from_pretrained(model_path + '-int8',
+        model = Int8OPTForCausalLM.from_pretrained(int8_model_path,
                                                    device_map='auto', torch_dtype=torch.float16)
     else:
-        model = OPTForCausalLM.from_pretrained(model_path,
+        model = OPTForCausalLM.from_pretrained('facebook/opt-13b',
                                                device_map='auto',
                                                torch_dtype=torch.float16)
     acc = evaluator.evaluate(model)
