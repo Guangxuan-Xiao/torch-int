@@ -1,6 +1,6 @@
 import torch
-from torch_int.nn.opt import Int8OPTDecoder, Int8OPTForCausalLM
-from transformers.models.opt.modeling_opt import OPTDecoder, OPTConfig, OPTForCausalLM
+from torch_int.nn.opt import Int8OPTDecoder, Int8OPTForCausalLM, Int8OPTModel
+from transformers.models.opt.modeling_opt import OPTDecoder, OPTConfig, OPTForCausalLM, OPTModel
 from utils import bench_model
 import argparse
 
@@ -11,7 +11,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch-size', type=int, default=1)
     parser.add_argument('--seq-len', type=int, default=256)
     parser.add_argument('--model-path-prefix', type=str,
-                        default='opt_configs')
+                        default='/dataset/opt')
     args = parser.parse_args()
 
     print(args)
@@ -20,11 +20,19 @@ if __name__ == '__main__':
     input_ids = torch.randint(0, config.vocab_size,
                               (args.batch_size, args.seq_len))
     if args.precision == 'int8-fp32':
-        model = Int8OPTForCausalLM(config)
+        model_path += '-int8'
+        model = Int8OPTModel.from_pretrained(
+            model_path, device_map='auto', torch_dtype=torch.float32)
     elif args.precision == 'int8-fp16':
-        model = Int8OPTForCausalLM(config).half()
+        model_path += '-int8'
+        model = Int8OPTModel.from_pretrained(
+            model_path, device_map='auto', torch_dtype=torch.half)
     elif args.precision == 'fp16':
-        model = OPTForCausalLM(config).half()
+        model = OPTModel.from_pretrained(
+            model_path, device_map='auto', torch_dtype=torch.half)
+    elif args.precision == 'llm_int8':
+        model = OPTModel.from_pretrained(
+            model_path, device_map='auto', load_in_8bit=True)
     else:
         raise NotImplementedError
     bench_model(model, (input_ids, ), num_iter=500)

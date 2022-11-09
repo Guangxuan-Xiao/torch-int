@@ -6,6 +6,7 @@ from .._CUDA import (linear_a8_w8_b32_o32,
                      linear_a8_w8_b32_o32_with_scaling,
                      linear_a8_w8_bfp32_ofp32
                      )
+import gc
 from ..functional.quantization import (
     quantize_weight_per_channel_min_max,
     dynamic_quantize_activation_per_tensor_min_max,
@@ -339,18 +340,37 @@ class W8A16Linear(torch.nn.Module):
     @torch.no_grad()
     def forward(self, x):
         weight_fp16 = self.weight.to(torch.float16)
-        weight_fp16.mul_(self.weight_scales.view(-1, 1))
+        weight_fp16.mul_(self.weight_scales)
         y = torch.functional.F.linear(x, weight_fp16, self.bias)
         del weight_fp16
         return y
 
     @staticmethod
-    def from_float(module):
+    def from_float(module, weight_quant='per_channel'):
         assert isinstance(module, torch.nn.Linear)
         new_module = W8A16Linear(
             module.in_features, module.out_features, module.bias is not None)
-        new_module.weight, new_module.weight_scales = quantize_weight_per_channel_min_max(
-            module.weight)
+        if weight_quant == 'per_channel':
+            new_module.weight, new_module.weight_scales = quantize_weight_per_channel_min_max(
+                module.weight)
+            new_module.weight_scales = new_module.weight_scales.view(-1, 1)
+        elif weight_quant == 'per_tensor':
+            dtype, device = module.weight.dtype, module.weight.device
+            # move the weight to cpu
+            module.weight.data = module.weight.data.cpu().float()
+            abs_max = module.weight.abs().max().clamp(min=1e-5)
+            new_module.weight_scales = abs_max / 127
+            module.weight.mul_(127 / abs_max).round_()
+            new_module.weight = module.weight.to(torch.int8)
+            del module.weight
+            gc.collect()
+            torch.cuda.empty_cache()
+            new_module.weight = new_module.weight.to(device)
+            new_module.weight_scales = new_module.weight_scales.to(
+                device).to(dtype)
+        else:
+            raise ValueError(
+                'weight_quant must be "per_channel" or "per_tensor"')
         if module.bias is not None:
             new_module.bias = module.bias.to(torch.float16)
         return new_module
