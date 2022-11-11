@@ -18,8 +18,9 @@ setup(
                 'torch_int/kernels/quantization.cu',
             ],
             include_dirs=['torch_int/kernels/include'],
-            extra_link_args=['-lcublas', '-lcublasLt',
-                             '-lculibos', '-lcudart', '-lrt', '-lpthread', '-ldl'],
+            extra_link_args=['-lcublas_static', '-lcublasLt_static',
+                             '-lculibos', '-lcudart', '-lcudart_static',
+                             '-lrt', '-lpthread', '-ldl'],
         ),
     ],
     cmdclass={

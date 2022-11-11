@@ -1,5 +1,5 @@
 models="opt-13b opt-30b"
-precisions="llm_int8 llm_int8_0 fp16 int8-fp16 int8-fp16-dynamic-a-token int8-fp16-dynamic-a-tensor"
+precisions="int8-fp16-dynamic-a-token int8-fp16-dynamic-a-tensor llm_int8_0"
 batch_sizes="4"
 seq_lens="256 512"
 output_file=log/ablate_quantization_scheme.csv
