@@ -1,0 +1,3 @@
+[submodule "submodules/cutlass"]
+	path = submodules/cutlass
+	url = git@github.com:NVIDIA/cutlass.git
