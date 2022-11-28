@@ -1,8 +1,7 @@
 import torch
 from torch import nn
-from transformers.models.opt.modeling_opt import OPTConfig, OPTForCausalLM, OPTModel, OPTPreTrainedModel, OPTLearnedPositionalEmbedding, _make_causal_mask, _expand_mask, OPTAttention, OPTDecoderLayer, OPTDecoder
-from transformers.modeling_outputs import BaseModelOutputWithPast
-from typing import List, Optional, Tuple, Union
+from transformers.models.opt.modeling_opt import OPTConfig, OPTForCausalLM, OPTModel, OPTPreTrainedModel, OPTLearnedPositionalEmbedding, OPTAttention, OPTDecoderLayer, OPTDecoder
+from typing import Optional, Tuple
 from .linear import W8A8BFP32OFP32Linear, W8A8B8O8Linear, W8A8B8O8LinearReLU
 from .fused import LayerNormQ
 from transformers.utils import logging
