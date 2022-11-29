@@ -1,9 +1,0 @@
-model,precision,batch_size,seq_len,latency(ms),memory(MB)
-opt-6.7b,int8-fp16-dynamic-a-token,4,256,133.34,6924.36
-opt-6.7b,int8-fp16-dynamic-a-tensor,4,256,132.49,6924.35
-opt-13b,int8-fp16-dynamic-a-token,4,256,217.81,13216.22
-opt-13b,int8-fp16-dynamic-a-tensor,4,256,210.85,13216.21
-opt-6.7b,int8-fp16-dynamic-a-token,4,512,296.57,7421.86
-opt-6.7b,int8-fp16-dynamic-a-tensor,4,512,288.72,7421.86
-opt-13b,int8-fp16-dynamic-a-token,4,512,475.68,13917.72
-opt-13b,int8-fp16-dynamic-a-tensor,4,512,466.96,13917.72
