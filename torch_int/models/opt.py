@@ -11,11 +11,11 @@ from transformers.models.opt.modeling_opt import (
     OPTDecoder,
     BaseModelOutputWithPast
 )
-from typing import Optional, Tuple, Union, List
-from ..nn.linear import W8A8BFP32OFP32Linear, W8A8B8O8Linear, W8A8B8O8LinearReLU
-from ..nn.fused import LayerNormQ
+from typing import Optional, Tuple, List
+from torch_int.nn.linear import W8A8BFP32OFP32Linear, W8A8B8O8Linear, W8A8B8O8LinearReLU
+from torch_int.nn.fused import LayerNormQ
 from transformers.utils import logging
-from ..nn.bmm import BMM_S8T_S8N_S8T, BMM_S8T_S8N_F32T
+from torch_int.nn.bmm import BMM_S8T_S8N_S8T, BMM_S8T_S8N_F32T
 logger = logging.get_logger(__name__)
 
 
