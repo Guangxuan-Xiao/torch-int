@@ -1,9 +1,5 @@
 #include "include/linear.h"
-#include <cstdint>
-#include <cuda.h>
-#include <cuda_runtime.h>
-#include <iostream>
-#include <torch/torch.h>
+#include "include/common.h"
 
 #include <cutlass/core_io.h>
 #include <cutlass/cutlass.h>

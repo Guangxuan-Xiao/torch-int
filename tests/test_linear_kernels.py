@@ -86,13 +86,13 @@ def test_quant_linear_relu_a8_w8_b8_o8():
 
 
 if __name__ == '__main__':
-    # print('test_quant_linear_a8_w8_b32_o32')
-    # test_quant_linear_a8_w8_b32_o32()
-    # print('test_quant_linear_a8_w8_b32_o32_with_scaling')
-    # test_quant_linear_a8_w8_b32_o32_with_scaling()
+    print('test_quant_linear_a8_w8_b32_o32')
+    test_quant_linear_a8_w8_b32_o32()
+    print('test_quant_linear_a8_w8_b32_o32_with_scaling')
+    test_quant_linear_a8_w8_b32_o32_with_scaling()
     print('test_quant_linear_a8_w8_bfp32_ofp32')
     test_quant_linear_a8_w8_bfp32_ofp32()
-    # print('test_quant_linear_a8_w8_b8_o8')
-    # test_quant_linear_a8_w8_b8_o8()
-    # print('test_quant_linear_relu_a8_w8_b8_o8')
-    # test_quant_linear_relu_a8_w8_b8_o8()
+    print('test_quant_linear_a8_w8_b8_o8')
+    test_quant_linear_a8_w8_b8_o8()
+    print('test_quant_linear_relu_a8_w8_b8_o8')
+    test_quant_linear_relu_a8_w8_b8_o8()

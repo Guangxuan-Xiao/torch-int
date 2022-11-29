@@ -1,20 +1,15 @@
 import torch
-from .._CUDA import gemm_cutlass as gemm
 from .._CUDA import (linear_a8_w8_b32_o32,
                      linear_relu_a8_w8_b8_o8,
                      linear_a8_w8_b8_o8,
                      linear_a8_w8_b32_o32_with_scaling,
                      linear_a8_w8_bfp32_ofp32
                      )
-import gc
 from ..functional.quantization import (
-    quantize_weight_per_channel_min_max,
-    dynamic_quantize_activation_per_tensor_min_max,
-    dynamic_quantize_activation_per_token_min_max,
-    dequantize_activation_w_per_channel_a_per_token,
-    dequantize_activation_w_per_channel_a_per_tensor,
-    fake_quantize_activation_per_tensor_min_max,
-    fake_quantize_activation_per_token_min_max,
+    quantize_per_tensor_absmax,
+    quantize_weight_per_channel_absmax,
+    fake_quantize_activation_per_tensor_absmax,
+    fake_quantize_activation_per_token_absmax,
 )
 
 
@@ -51,16 +46,10 @@ class W8A8B8O8Linear(torch.nn.Module):
     def from_float(module: torch.nn.Linear, input_scale, output_scale):
         int8_module = W8A8B8O8Linear(
             module.in_features, module.out_features)
-        weight_scale = module.weight.abs().max().item() / 127
-        bias_scale = module.bias.abs().max().item() / 127
-        int8_weight = (module.weight / weight_scale).round().to(torch.int8)
-        int8_bias = (module.bias / bias_scale).round().to(torch.int8)
+        int8_weight, weight_scale = quantize_per_tensor_absmax(module.weight)
+        int8_bias, bias_scale = quantize_per_tensor_absmax(module.bias)
         alpha = input_scale * weight_scale / output_scale
         beta = bias_scale / output_scale
-        if not torch.is_tensor(alpha):
-            alpha = torch.tensor(alpha)
-        if not torch.is_tensor(beta):
-            beta = torch.tensor(beta)
         int8_module.weight.copy_(int8_weight)
         int8_module.bias.copy_(int8_bias)
         int8_module.a = alpha
@@ -102,16 +91,10 @@ class W8A8B8O8LinearReLU(torch.nn.Module):
         # TODO: add zero-point to prevent the bit waste
         int8_module = W8A8B8O8LinearReLU(
             module.in_features, module.out_features)
-        weight_scale = module.weight.abs().max().item() / 127
-        bias_scale = module.bias.abs().max().item() / 127
-        int8_weight = (module.weight / weight_scale).round().to(torch.int8)
-        int8_bias = (module.bias / bias_scale).round().to(torch.int8)
+        int8_weight, weight_scale = quantize_per_tensor_absmax(module.weight)
+        int8_bias, bias_scale = quantize_per_tensor_absmax(module.bias)
         alpha = input_scale * weight_scale / output_scale
         beta = bias_scale / output_scale
-        if not torch.is_tensor(alpha):
-            alpha = torch.tensor(alpha)
-        if not torch.is_tensor(beta):
-            beta = torch.tensor(beta)
         int8_module.weight.copy_(int8_weight)
         int8_module.bias.copy_(int8_bias)
         int8_module.a = alpha
@@ -179,21 +162,16 @@ class W8A8B32O32Linear(torch.nn.Module):
     def from_float(module: torch.nn.Linear, input_scale, output_scale):
         int8_module = W8A8B32O32Linear(
             module.in_features, module.out_features)
-        weight_scale = module.weight.abs().max().item() / 127
-        bias_scale = module.bias.abs().max().item() / (2**31 - 1)
-        int8_weight = (module.weight / weight_scale).round().to(torch.int8)
-        int32_bias = (module.bias.double() /
-                      bias_scale).round().to(torch.int32)
+        int8_weight, weight_scale = quantize_per_tensor_absmax(module.weight)
+        module.bias = module.bias.float()
+        bias_scale = module.bias.abs().max() / (2**31 - 1)
+        int32_bias = (module.bias / bias_scale).round().to(torch.int32)
         alpha = input_scale * weight_scale / output_scale
         beta = bias_scale / output_scale
-        if not torch.is_tensor(alpha):
-            alpha = torch.tensor(alpha)
-        if not torch.is_tensor(beta):
-            beta = torch.tensor(beta)
         int8_module.weight.copy_(int8_weight)
         int8_module.bias.copy_(int32_bias)
-        int8_module.a = torch.tensor(alpha)
-        int8_module.b = torch.tensor(beta)
+        int8_module.a = alpha
+        int8_module.b = beta
         int8_module.input_scale = input_scale
         int8_module.output_scale = output_scale
         int8_module.weight_scale = weight_scale
@@ -241,76 +219,14 @@ class W8A8BFP32OFP32Linear(torch.nn.Module):
     def from_float(module: torch.nn.Linear, input_scale):
         int8_module = W8A8BFP32OFP32Linear(
             module.in_features, module.out_features)
-        weight_scale = module.weight.abs().max().item() / 127
-        int8_weight = (module.weight / weight_scale).round().to(torch.int8)
+        int8_weight, weight_scale = quantize_per_tensor_absmax(module.weight)
         alpha = input_scale * weight_scale
-        if not torch.is_tensor(alpha):
-            alpha = torch.tensor(alpha)
         int8_module.weight.copy_(int8_weight)
         int8_module.bias.copy_(module.bias.to(torch.float32))
         int8_module.a = alpha
         int8_module.input_scale = input_scale
         int8_module.weight_scale = weight_scale
         return int8_module
-
-
-class Int8Linear(torch.nn.Module):
-    def __init__(self, in_features, out_features, bias=True, act_quant='per_token'):
-        super(Int8Linear, self).__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-
-        self.register_buffer('weight', torch.randint(-127, 127, (self.out_features,
-                                                                 self.in_features), dtype=torch.int8, requires_grad=False))
-        if bias:
-            self.register_buffer('bias', torch.zeros(
-                (1, self.out_features), dtype=torch.float16, requires_grad=False))
-        else:
-            self.register_buffer('bias', None)
-        self.register_buffer('weight_scales', torch.ones(
-            self.out_features, dtype=torch.float16, requires_grad=False))
-        if act_quant == 'per_token':
-            self.activation_quantizer = dynamic_quantize_activation_per_token_min_max
-            self.activation_dequantizer = dequantize_activation_w_per_channel_a_per_token
-        elif act_quant == 'per_tensor':
-            self.activation_quantizer = dynamic_quantize_activation_per_tensor_min_max
-            self.activation_dequantizer = dequantize_activation_w_per_channel_a_per_tensor
-        else:
-            raise ValueError('act_quant must be "per_token" or "per_tensor"')
-
-    def to(self, *args, **kwargs):
-        super(Int8Linear, self).to(*args, **kwargs)
-        self.weight = self.weight.to(*args, **kwargs)
-        if self.bias is not None:
-            self.bias = self.bias.to(*args, **kwargs)
-        self.weight_scales = self.weight_scales.to(*args, **kwargs)
-        return self
-
-    @torch.no_grad()
-    def forward(self, x):
-        x_shape = x.shape
-        x = x.view(-1, x_shape[-1])
-        q_x, x_scale = self.activation_quantizer(x)
-        q_y = gemm(q_x, self.weight)
-        y = self.activation_dequantizer(q_y, self.weight_scales, x_scale)
-        y = y.view(*x_shape[:-1], -1)
-        if self.bias is not None:
-            y += self.bias
-        return y
-
-    @staticmethod
-    def from_float(module, act_quant='per_token'):
-        assert isinstance(module, torch.nn.Linear)
-        new_module = Int8Linear(
-            module.in_features, module.out_features, module.bias is not None, act_quant)
-        new_module.weight, new_module.weight_scales = quantize_weight_per_channel_min_max(
-            module.weight)
-        if module.bias is not None:
-            new_module.bias = module.bias.to(torch.float16)
-        return new_module
-
-    def __repr__(self):
-        return super().__repr__() + f'({self.in_features}, {self.out_features}, bias={self.bias is not None}, act_quant={self.activation_quantizer.__name__})'
 
 
 class W8A16Linear(torch.nn.Module):
@@ -351,23 +267,10 @@ class W8A16Linear(torch.nn.Module):
         new_module = W8A16Linear(
             module.in_features, module.out_features, module.bias is not None)
         if weight_quant == 'per_channel':
-            new_module.weight, new_module.weight_scales = quantize_weight_per_channel_min_max(
+            new_module.weight, new_module.weight_scales = quantize_weight_per_channel_absmax(
                 module.weight)
-            new_module.weight_scales = new_module.weight_scales.view(-1, 1)
         elif weight_quant == 'per_tensor':
-            dtype, device = module.weight.dtype, module.weight.device
-            # move the weight to cpu
-            module.weight.data = module.weight.data.cpu().float()
-            abs_max = module.weight.abs().max().clamp(min=1e-5)
-            new_module.weight_scales = abs_max / 127
-            module.weight.mul_(127 / abs_max).round_()
-            new_module.weight = module.weight.to(torch.int8)
-            del module.weight
-            gc.collect()
-            torch.cuda.empty_cache()
-            new_module.weight = new_module.weight.to(device)
-            new_module.weight_scales = new_module.weight_scales.to(
-                device).to(dtype)
+            new_module.weight, new_module.weight_scales = quantize_per_tensor_absmax(module.weight)
         else:
             raise ValueError(
                 'weight_quant must be "per_channel" or "per_tensor"')
@@ -396,9 +299,9 @@ class W8FakeA8Linear(torch.nn.Module):
             self.out_features, dtype=torch.float16, requires_grad=False))
 
         if act_quant == 'per_token':
-            self.activation_fake_quantizer = fake_quantize_activation_per_token_min_max
+            self.activation_fake_quantizer = fake_quantize_activation_per_token_absmax
         elif act_quant == 'per_tensor':
-            self.activation_fake_quantizer = fake_quantize_activation_per_tensor_min_max
+            self.activation_fake_quantizer = fake_quantize_activation_per_tensor_absmax
         else:
             raise ValueError('act_quant must be "per_token" or "per_tensor"')
 
@@ -424,7 +327,7 @@ class W8FakeA8Linear(torch.nn.Module):
         assert isinstance(module, torch.nn.Linear)
         new_module = W8FakeA8Linear(
             module.in_features, module.out_features, module.bias is not None, act_quant)
-        new_module.weight, new_module.weight_scales = quantize_weight_per_channel_min_max(
+        new_module.weight, new_module.weight_scales = quantize_weight_per_channel_absmax(
             module.weight)
         if module.bias is not None:
             new_module.bias = module.bias.to(torch.float16)

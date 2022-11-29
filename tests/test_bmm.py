@@ -24,9 +24,9 @@ def test_bmm_s8t_s8n_f32t():
     b = torch.randint(-128, 127, (B, N, K), dtype=torch.int8).cuda()
     scale = 0.001
     c = bmm_s8t_s8n_f32t(a, b, scale)
-    ic(c)
+    # ic(c)
     c_gt = torch.bmm(a.float(), b.float().transpose(1, 2)) * scale
-    ic(c_gt)
+    # ic(c_gt)
     ic(torch.mean((c_gt - c) ** 2))
 
 
@@ -99,10 +99,10 @@ def test_bmm_s8t_s8n_s8t_2():
     scale = 0.0186
     c_gt = torch.bmm(a.float(), b.float()) * scale
     c_gt = c_gt.round().clamp(-128, 127).to(torch.int8)
-    ic(c_gt)
+    # ic(c_gt)
     b1 = b.transpose(1, 2).contiguous()
     c1 = bmm_s8t_s8n_s8t(a, b1, scale)
-    ic(c1)
+    # ic(c1)
     ic(torch.mean((c_gt.float() - c1.float()) ** 2))
 
 
@@ -121,11 +121,11 @@ def test_bmm_s8t_s8n_s32t():
 
 
 if __name__ == '__main__':
-    # print('test_bmm_s8t_s8n_s8t')
-    # test_bmm_s8t_s8n_s8t()
-    # print('test_bmm_s8t_s8n_s8t_2')
-    # test_bmm_s8t_s8n_s8t_2()
-    # print('test_bmm_s8t_s8n_s32t')
-    # test_bmm_s8t_s8n_s32t()
+    print('test_bmm_s8t_s8n_s8t')
+    test_bmm_s8t_s8n_s8t()
+    print('test_bmm_s8t_s8n_s8t_2')
+    test_bmm_s8t_s8n_s8t_2()
+    print('test_bmm_s8t_s8n_s32t')
+    test_bmm_s8t_s8n_s32t()
     print('test_bmm_s8t_s8n_f32t')
     test_bmm_s8t_s8n_f32t()

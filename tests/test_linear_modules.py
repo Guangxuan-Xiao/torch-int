@@ -65,11 +65,11 @@ def test_w8a8bfp32ofp32_linear():
     ic(r2)
 
 if __name__ == '__main__':
-    # print('test_w8a8b8o8_linear_relu')
-    # test_w8a8b8o8_linear_relu()
-    # print('test_w8a8b8o8_linear')
-    # test_w8a8b8o8_linear()
-    # print('test_w8a8b32o32_linear_with_scaling')
-    # test_w8a8b32o32_linear_with_scaling()
+    print('test_w8a8b8o8_linear_relu')
+    test_w8a8b8o8_linear_relu()
+    print('test_w8a8b8o8_linear')
+    test_w8a8b8o8_linear()
+    print('test_w8a8b32o32_linear_with_scaling')
+    test_w8a8b32o32_linear_with_scaling()
     print('test_w8a8bfp32ofp32_linear')
     test_w8a8bfp32ofp32_linear()
