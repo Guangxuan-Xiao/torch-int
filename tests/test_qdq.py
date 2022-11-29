@@ -1,5 +1,5 @@
 import torch
-from torch_int.functional.quantization import dynamic_quantize_activation_per_token_min_max, dequantize_activation_w_per_channel_a_per_token
+from torch_int.functional.quantization import dynamic_quantize_activation_per_token_absmax, dequantize_activation_w_per_channel_a_per_token
 from torch_int._CUDA import quantize_activation_per_token, dequantize_activation_per_token
 import argparse
 from icecream import ic
@@ -12,7 +12,7 @@ def test_qdq():
     act_ref = act * w_scale
 
     ic(act)
-    q_act_py, a_scale_py = dynamic_quantize_activation_per_token_min_max(act.clone())
+    q_act_py, a_scale_py = dynamic_quantize_activation_per_token_absmax(act.clone())
     q_act_c, a_scale_c = quantize_activation_per_token(act.clone())
 
     ic(torch.allclose(q_act_py, q_act_c))

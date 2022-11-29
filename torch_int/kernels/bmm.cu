@@ -1,9 +1,9 @@
 #include "include/bmm.h"
 #include "include/common.h"
-#include <cutlass/gemm/device/gemm_batched.h>
-#include <cutlass/gemm/device/gemm.h>
 #include <cutlass/core_io.h>
 #include <cutlass/cutlass.h>
+#include <cutlass/gemm/device/gemm.h>
+#include <cutlass/gemm/device/gemm_batched.h>
 #include <cutlass/numeric_types.h>
 #include <cutlass/util/host_tensor.h>
 
@@ -13,9 +13,8 @@ torch::Tensor bmm_s8t_s8n_f32t(torch::Tensor A, torch::Tensor B, float alpha) {
   int N = B.size(1);
   int K = A.size(2);
 
-  auto C =
-      torch::empty({batch_size, M, N},
-                   torch::dtype(torch::kFloat32).device(A.device()));
+  auto C = torch::empty({batch_size, M, N},
+                        torch::dtype(torch::kFloat32).device(A.device()));
   int lda = A.size(2);
   int ldb = B.size(2);
   int ldc = C.size(2);
@@ -46,21 +45,36 @@ torch::Tensor bmm_s8t_s8n_f32t(torch::Tensor A, torch::Tensor B, float alpha) {
   long long int batch_stride_C = M * N;
 
   Gemm gemm_op;
+  typename Gemm::Arguments arguments{
+      {M, N, K},      {A.data_ptr<ElementInputA>(), lda},
+      batch_stride_A, {B.data_ptr<ElementInputB>(), ldb},
+      batch_stride_B, {C.data_ptr<ElementOutput>(), ldc},
+      batch_stride_C, {C.data_ptr<ElementOutput>(), ldc},
+      batch_stride_C, {alpha, 0},
+      batch_size};
 
-  cutlass::Status status = gemm_op({{M, N, K},
-                                    {A.data_ptr<ElementInputA>(), lda},
-                                    batch_stride_A,
-                                    {B.data_ptr<ElementInputB>(), ldb},
-                                    batch_stride_B,
-                                    {C.data_ptr<ElementOutput>(), ldc},
-                                    batch_stride_C,
-                                    {C.data_ptr<ElementOutput>(), ldc},
-                                    batch_stride_C,
-                                    {alpha, 0},
-                                    batch_size});
+  // Using the arguments, query for extra workspace required for matrix
+  // multiplication computation
+  size_t workspace_size = Gemm::get_workspace_size(arguments);
 
+  // Allocate workspace memory
+  cutlass::device_memory::allocation<uint8_t> workspace(workspace_size);
+
+  // Check the problem size is supported or not
+  cutlass::Status status = gemm_op.can_implement(arguments);
   if (status != cutlass::Status::kSuccess) {
-    std::cout << "cutlass error code: " << (int)status << std::endl;
+    throw std::runtime_error("cutlass cannot implement");
+  }
+
+  // Initialize CUTLASS kernel with arguments and workspace pointer
+  status = gemm_op.initialize(arguments, workspace.get());
+  if (status != cutlass::Status::kSuccess) {
+    throw std::runtime_error("cutlass cannot initialize");
+  }
+
+  status = gemm_op();
+  if (status != cutlass::Status::kSuccess) {
+    throw std::runtime_error("cutlass cannot run");
   }
   return C;
 }
@@ -103,21 +117,36 @@ torch::Tensor bmm_s8t_s8n_s8t(torch::Tensor A, torch::Tensor B, float alpha) {
   long long int batch_stride_C = M * N;
 
   Gemm gemm_op;
+  typename Gemm::Arguments arguments{
+      {M, N, K},      {A.data_ptr<ElementInputA>(), lda},
+      batch_stride_A, {B.data_ptr<ElementInputB>(), ldb},
+      batch_stride_B, {C.data_ptr<ElementOutput>(), ldc},
+      batch_stride_C, {C.data_ptr<ElementOutput>(), ldc},
+      batch_stride_C, {alpha, 0},
+      batch_size};
 
-  cutlass::Status status = gemm_op({{M, N, K},
-                                    {A.data_ptr<ElementInputA>(), lda},
-                                    batch_stride_A,
-                                    {B.data_ptr<ElementInputB>(), ldb},
-                                    batch_stride_B,
-                                    {C.data_ptr<ElementOutput>(), ldc},
-                                    batch_stride_C,
-                                    {C.data_ptr<ElementOutput>(), ldc},
-                                    batch_stride_C,
-                                    {alpha, 0},
-                                    batch_size});
+  // Using the arguments, query for extra workspace required for matrix
+  // multiplication computation
+  size_t workspace_size = Gemm::get_workspace_size(arguments);
 
+  // Allocate workspace memory
+  cutlass::device_memory::allocation<uint8_t> workspace(workspace_size);
+
+  // Check the problem size is supported or not
+  cutlass::Status status = gemm_op.can_implement(arguments);
   if (status != cutlass::Status::kSuccess) {
-    std::cout << "cutlass error code: " << (int)status << std::endl;
+    throw std::runtime_error("cutlass cannot implement");
+  }
+
+  // Initialize CUTLASS kernel with arguments and workspace pointer
+  status = gemm_op.initialize(arguments, workspace.get());
+  if (status != cutlass::Status::kSuccess) {
+    throw std::runtime_error("cutlass cannot initialize");
+  }
+
+  status = gemm_op();
+  if (status != cutlass::Status::kSuccess) {
+    throw std::runtime_error("cutlass cannot run");
   }
   return C;
 }
