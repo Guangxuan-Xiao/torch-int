@@ -1,0 +1,1245 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" width="1200" height="326" onload="init(evt)" viewBox="0 0 1200 326" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<!-- Flame graph stack visualization. See https://github.com/brendangregg/FlameGraph for latest version, and http://www.brendangregg.com/flamegraphs.html for examples. -->
+<!-- NOTES:  -->
+<defs>
+	<linearGradient id="background" y1="0" y2="1" x1="0" x2="0" >
+		<stop stop-color="#eeeeee" offset="5%" />
+		<stop stop-color="#eeeeb0" offset="95%" />
+	</linearGradient>
+</defs>
+<style type="text/css">
+	text { font-family:Verdana; font-size:12px; fill:rgb(0,0,0); }
+	#search, #ignorecase { opacity:0.1; cursor:pointer; }
+	#search:hover, #search.show, #ignorecase:hover, #ignorecase.show { opacity:1; }
+	#subtitle { text-anchor:middle; font-color:rgb(160,160,160); }
+	#title { text-anchor:middle; font-size:17px}
+	#unzoom { cursor:pointer; }
+	#frames > *:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+	.hide { display:none; }
+	.parent { opacity:0.5; }
+</style>
+<script type="text/ecmascript">
+<![CDATA[
+	"use strict";
+	var details, searchbtn, unzoombtn, matchedtxt, svg, searching, currentSearchTerm, ignorecase, ignorecaseBtn;
+	function init(evt) {
+		details = document.getElementById("details").firstChild;
+		searchbtn = document.getElementById("search");
+		ignorecaseBtn = document.getElementById("ignorecase");
+		unzoombtn = document.getElementById("unzoom");
+		matchedtxt = document.getElementById("matched");
+		svg = document.getElementsByTagName("svg")[0];
+		searching = 0;
+		currentSearchTerm = null;
+
+		// use GET parameters to restore a flamegraphs state.
+		var params = get_params();
+		if (params.x && params.y)
+			zoom(find_group(document.querySelector('[x="' + params.x + '"][y="' + params.y + '"]')));
+                if (params.s) search(params.s);
+	}
+
+	// event listeners
+	window.addEventListener("click", function(e) {
+		var target = find_group(e.target);
+		if (target) {
+			if (target.nodeName == "a") {
+				if (e.ctrlKey === false) return;
+				e.preventDefault();
+			}
+			if (target.classList.contains("parent")) unzoom(true);
+			zoom(target);
+			if (!document.querySelector('.parent')) {
+				// we have basically done a clearzoom so clear the url
+				var params = get_params();
+				if (params.x) delete params.x;
+				if (params.y) delete params.y;
+				history.replaceState(null, null, parse_params(params));
+				unzoombtn.classList.add("hide");
+				return;
+			}
+
+			// set parameters for zoom state
+			var el = target.querySelector("rect");
+			if (el && el.attributes && el.attributes.y && el.attributes._orig_x) {
+				var params = get_params()
+				params.x = el.attributes._orig_x.value;
+				params.y = el.attributes.y.value;
+				history.replaceState(null, null, parse_params(params));
+			}
+		}
+		else if (e.target.id == "unzoom") clearzoom();
+		else if (e.target.id == "search") search_prompt();
+		else if (e.target.id == "ignorecase") toggle_ignorecase();
+	}, false)
+
+	// mouse-over for info
+	// show
+	window.addEventListener("mouseover", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = "Function: " + g_to_text(target);
+	}, false)
+
+	// clear
+	window.addEventListener("mouseout", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = ' ';
+	}, false)
+
+	// ctrl-F for search
+	// ctrl-I to toggle case-sensitive search
+	window.addEventListener("keydown",function (e) {
+		if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+			e.preventDefault();
+			search_prompt();
+		}
+		else if (e.ctrlKey && e.keyCode === 73) {
+			e.preventDefault();
+			toggle_ignorecase();
+		}
+	}, false)
+
+	// functions
+	function get_params() {
+		var params = {};
+		var paramsarr = window.location.search.substr(1).split('&');
+		for (var i = 0; i < paramsarr.length; ++i) {
+			var tmp = paramsarr[i].split("=");
+			if (!tmp[0] || !tmp[1]) continue;
+			params[tmp[0]]  = decodeURIComponent(tmp[1]);
+		}
+		return params;
+	}
+	function parse_params(params) {
+		var uri = "?";
+		for (var key in params) {
+			uri += key + '=' + encodeURIComponent(params[key]) + '&';
+		}
+		if (uri.slice(-1) == "&")
+			uri = uri.substring(0, uri.length - 1);
+		if (uri == '?')
+			uri = window.location.href.split('?')[0];
+		return uri;
+	}
+	function find_child(node, selector) {
+		var children = node.querySelectorAll(selector);
+		if (children.length) return children[0];
+	}
+	function find_group(node) {
+		var parent = node.parentElement;
+		if (!parent) return;
+		if (parent.id == "frames") return node;
+		return find_group(parent);
+	}
+	function orig_save(e, attr, val) {
+		if (e.attributes["_orig_" + attr] != undefined) return;
+		if (e.attributes[attr] == undefined) return;
+		if (val == undefined) val = e.attributes[attr].value;
+		e.setAttribute("_orig_" + attr, val);
+	}
+	function orig_load(e, attr) {
+		if (e.attributes["_orig_"+attr] == undefined) return;
+		e.attributes[attr].value = e.attributes["_orig_" + attr].value;
+		e.removeAttribute("_orig_"+attr);
+	}
+	function g_to_text(e) {
+		var text = find_child(e, "title").firstChild.nodeValue;
+		return (text)
+	}
+	function g_to_func(e) {
+		var func = g_to_text(e);
+		// if there's any manipulation we want to do to the function
+		// name before it's searched, do it here before returning.
+		return (func);
+	}
+	function update_text(e) {
+		var r = find_child(e, "rect");
+		var t = find_child(e, "text");
+		var w = parseFloat(r.attributes.width.value) -3;
+		var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+		t.attributes.x.value = parseFloat(r.attributes.x.value) + 3;
+
+		// Smaller than this size won't fit anything
+		if (w < 2 * 12 * 0.59) {
+			t.textContent = "";
+			return;
+		}
+
+		t.textContent = txt;
+		var sl = t.getSubStringLength(0, txt.length);
+		// check if only whitespace or if we can fit the entire string into width w
+		if (/^ *$/.test(txt) || sl < w)
+			return;
+
+		// this isn't perfect, but gives a good starting point
+		// and avoids calling getSubStringLength too often
+		var start = Math.floor((w/sl) * txt.length);
+		for (var x = start; x > 0; x = x-2) {
+			if (t.getSubStringLength(0, x + 2) <= w) {
+				t.textContent = txt.substring(0, x) + "..";
+				return;
+			}
+		}
+		t.textContent = "";
+	}
+
+	// zoom
+	function zoom_reset(e) {
+		if (e.attributes != undefined) {
+			orig_load(e, "x");
+			orig_load(e, "width");
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_reset(c[i]);
+		}
+	}
+	function zoom_child(e, x, ratio) {
+		if (e.attributes != undefined) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = (parseFloat(e.attributes.x.value) - x - 10) * ratio + 10;
+				if (e.tagName == "text")
+					e.attributes.x.value = find_child(e.parentNode, "rect[x]").attributes.x.value + 3;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseFloat(e.attributes.width.value) * ratio;
+			}
+		}
+
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_child(c[i], x - 10, ratio);
+		}
+	}
+	function zoom_parent(e) {
+		if (e.attributes) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = 10;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseInt(svg.width.baseVal.value) - (10 * 2);
+			}
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_parent(c[i]);
+		}
+	}
+	function zoom(node) {
+		var attr = find_child(node, "rect").attributes;
+		var width = parseFloat(attr.width.value);
+		var xmin = parseFloat(attr.x.value);
+		var xmax = parseFloat(xmin + width);
+		var ymin = parseFloat(attr.y.value);
+		var ratio = (svg.width.baseVal.value - 2 * 10) / width;
+
+		// XXX: Workaround for JavaScript float issues (fix me)
+		var fudge = 0.0001;
+
+		unzoombtn.classList.remove("hide");
+
+		var el = document.getElementById("frames").children;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var a = find_child(e, "rect").attributes;
+			var ex = parseFloat(a.x.value);
+			var ew = parseFloat(a.width.value);
+			var upstack;
+			// Is it an ancestor
+			if (0 == 0) {
+				upstack = parseFloat(a.y.value) > ymin;
+			} else {
+				upstack = parseFloat(a.y.value) < ymin;
+			}
+			if (upstack) {
+				// Direct ancestor
+				if (ex <= xmin && (ex+ew+fudge) >= xmax) {
+					e.classList.add("parent");
+					zoom_parent(e);
+					update_text(e);
+				}
+				// not in current path
+				else
+					e.classList.add("hide");
+			}
+			// Children maybe
+			else {
+				// no common path
+				if (ex < xmin || ex + fudge >= xmax) {
+					e.classList.add("hide");
+				}
+				else {
+					zoom_child(e, xmin, ratio);
+					update_text(e);
+				}
+			}
+		}
+		search();
+	}
+	function unzoom(dont_update_text) {
+		unzoombtn.classList.add("hide");
+		var el = document.getElementById("frames").children;
+		for(var i = 0; i < el.length; i++) {
+			el[i].classList.remove("parent");
+			el[i].classList.remove("hide");
+			zoom_reset(el[i]);
+			if(!dont_update_text) update_text(el[i]);
+		}
+		search();
+	}
+	function clearzoom() {
+		unzoom();
+
+		// remove zoom state
+		var params = get_params();
+		if (params.x) delete params.x;
+		if (params.y) delete params.y;
+		history.replaceState(null, null, parse_params(params));
+	}
+
+	// search
+	function toggle_ignorecase() {
+		ignorecase = !ignorecase;
+		if (ignorecase) {
+			ignorecaseBtn.classList.add("show");
+		} else {
+			ignorecaseBtn.classList.remove("show");
+		}
+		reset_search();
+		search();
+	}
+	function reset_search() {
+		var el = document.querySelectorAll("#frames rect");
+		for (var i = 0; i < el.length; i++) {
+			orig_load(el[i], "fill")
+		}
+		var params = get_params();
+		delete params.s;
+		history.replaceState(null, null, parse_params(params));
+	}
+	function search_prompt() {
+		if (!searching) {
+			var term = prompt("Enter a search term (regexp " +
+			    "allowed, eg: ^ext4_)"
+			    + (ignorecase ? ", ignoring case" : "")
+			    + "\nPress Ctrl-i to toggle case sensitivity", "");
+			if (term != null) search(term);
+		} else {
+			reset_search();
+			searching = 0;
+			currentSearchTerm = null;
+			searchbtn.classList.remove("show");
+			searchbtn.firstChild.nodeValue = "Search"
+			matchedtxt.classList.add("hide");
+			matchedtxt.firstChild.nodeValue = ""
+		}
+	}
+	function search(term) {
+		if (term) currentSearchTerm = term;
+
+		var re = new RegExp(currentSearchTerm, ignorecase ? 'i' : '');
+		var el = document.getElementById("frames").children;
+		var matches = new Object();
+		var maxwidth = 0;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var func = g_to_func(e);
+			var rect = find_child(e, "rect");
+			if (func == null || rect == null)
+				continue;
+
+			// Save max width. Only works as we have a root frame
+			var w = parseFloat(rect.attributes.width.value);
+			if (w > maxwidth)
+				maxwidth = w;
+
+			if (func.match(re)) {
+				// highlight
+				var x = parseFloat(rect.attributes.x.value);
+				orig_save(rect, "fill");
+				rect.attributes.fill.value = "rgb(230,0,230)";
+
+				// remember matches
+				if (matches[x] == undefined) {
+					matches[x] = w;
+				} else {
+					if (w > matches[x]) {
+						// overwrite with parent
+						matches[x] = w;
+					}
+				}
+				searching = 1;
+			}
+		}
+		if (!searching)
+			return;
+		var params = get_params();
+		params.s = currentSearchTerm;
+		history.replaceState(null, null, parse_params(params));
+
+		searchbtn.classList.add("show");
+		searchbtn.firstChild.nodeValue = "Reset Search";
+
+		// calculate percent matched, excluding vertical overlap
+		var count = 0;
+		var lastx = -1;
+		var lastw = 0;
+		var keys = Array();
+		for (k in matches) {
+			if (matches.hasOwnProperty(k))
+				keys.push(k);
+		}
+		// sort the matched frames by their x location
+		// ascending, then width descending
+		keys.sort(function(a, b){
+			return a - b;
+		});
+		// Step through frames saving only the biggest bottom-up frames
+		// thanks to the sort order. This relies on the tree property
+		// where children are always smaller than their parents.
+		var fudge = 0.0001;	// JavaScript floating point
+		for (var k in keys) {
+			var x = parseFloat(keys[k]);
+			var w = matches[keys[k]];
+			if (x >= lastx + lastw - fudge) {
+				count += w;
+				lastx = x;
+				lastw = w;
+			}
+		}
+		// display matched percent
+		matchedtxt.classList.remove("hide");
+		var pct = 100 * count / maxwidth;
+		if (pct != 100) pct = pct.toFixed(1)
+		matchedtxt.firstChild.nodeValue = "Matched: " + pct + "%";
+	}
+]]>
+</script>
+<rect x="0.0" y="0" width="1200.0" height="326.0" fill="url(#background)"  />
+<text id="title" x="600.00" y="24" >CUDA Time</text>
+<text id="details" x="10.00" y="309" > </text>
+<text id="unzoom" x="10.00" y="24" class="hide">Reset Zoom</text>
+<text id="search" x="1090.00" y="24" >Search</text>
+<text id="ignorecase" x="1174.00" y="24" >ic</text>
+<text id="matched" x="1090.00" y="309" > </text>
+<g id="frames">
+<g >
+<title>profiling/utils.py(18):_profile_model (8,536 us., 0.06%)</title><rect x="56.2" y="133" width="0.7" height="15.0" fill="rgb(231,183,27)" rx="2" ry="2" />
+<text  x="59.17" y="143.5" ></text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(213):_forward (404,141 us., 2.84%)</title><rect x="321.2" y="181" width="33.6" height="15.0" fill="rgb(224,174,43)" rx="2" ry="2" />
+<text  x="324.25" y="191.5" >to..</text>
+</g>
+<g >
+<title>transformers/models/opt/modeling_opt.py(840):_forward (404,141 us., 2.84%)</title><rect x="321.2" y="117" width="33.6" height="15.0" fill="rgb(221,162,7)" rx="2" ry="2" />
+<text  x="324.25" y="127.5" >tr..</text>
+</g>
+<g >
+<title>&lt;built-in_method_layer_norm_of_type_object_at_0x7fede157e9c0&gt; (475,461 us., 3.34%)</title><rect x="764.6" y="261" width="39.4" height="15.0" fill="rgb(213,149,46)" rx="2" ry="2" />
+<text  x="767.55" y="271.5" >&lt;bu..</text>
+</g>
+<g >
+<title>transformers/models/opt/modeling_opt.py(89):__expand_mask (2,153 us., 0.02%)</title><rect x="764.4" y="245" width="0.2" height="15.0" fill="rgb(226,194,38)" rx="2" ry="2" />
+<text  x="767.38" y="255.5" ></text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(346):_forward (468,175 us., 3.29%)</title><rect x="765.2" y="165" width="38.8" height="15.0" fill="rgb(254,109,42)" rx="2" ry="2" />
+<text  x="768.16" y="175.5" >tor..</text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(346):_forward (404,141 us., 2.84%)</title><rect x="321.2" y="149" width="33.6" height="15.0" fill="rgb(219,129,35)" rx="2" ry="2" />
+<text  x="324.25" y="159.5" >to..</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoder (4,938,342 us., 34.71%)</title><rect x="354.8" y="149" width="409.6" height="15.0" fill="rgb(220,52,44)" rx="2" ry="2" />
+<text  x="357.77" y="159.5" >nn.Module:_Int8OPTDecoder</text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(346):_forward (8,238 us., 0.06%)</title><rect x="56.9" y="181" width="0.7" height="15.0" fill="rgb(209,138,43)" rx="2" ry="2" />
+<text  x="59.88" y="191.5" ></text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(346):_forward (1,261,819 us., 8.87%)</title><rect x="871.2" y="165" width="104.7" height="15.0" fill="rgb(245,224,40)" rx="2" ry="2" />
+<text  x="874.20" y="175.5" >torch_int/nn..</text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(346):_forward (7,627 us., 0.05%)</title><rect x="976.0" y="261" width="0.6" height="15.0" fill="rgb(206,26,45)" rx="2" ry="2" />
+<text  x="978.96" y="271.5" ></text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(213):_forward (1,265,139 us., 8.89%)</title><rect x="57.6" y="181" width="104.9" height="15.0" fill="rgb(223,213,28)" rx="2" ry="2" />
+<text  x="60.56" y="191.5" >torch_int/nn..</text>
+</g>
+<g >
+<title>profiling/utils.py(18):_profile_model (8,238 us., 0.06%)</title><rect x="56.9" y="117" width="0.7" height="15.0" fill="rgb(244,145,40)" rx="2" ry="2" />
+<text  x="59.88" y="127.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTForCausalLM (1,265,139 us., 8.89%)</title><rect x="57.6" y="101" width="104.9" height="15.0" fill="rgb(205,189,34)" rx="2" ry="2" />
+<text  x="60.56" y="111.5" >nn.Module:_I..</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoderLayer (404,141 us., 2.84%)</title><rect x="321.2" y="165" width="33.6" height="15.0" fill="rgb(227,177,15)" rx="2" ry="2" />
+<text  x="324.25" y="175.5" >nn..</text>
+</g>
+<g >
+<title>transformers/models/opt/modeling_opt.py(840):_forward (2,572,478 us., 18.08%)</title><rect x="976.6" y="149" width="213.4" height="15.0" fill="rgb(243,85,21)" rx="2" ry="2" />
+<text  x="979.59" y="159.5" >transformers/models/opt/mode..</text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(346):_forward (154,662 us., 1.09%)</title><rect x="823.0" y="165" width="12.8" height="15.0" fill="rgb(212,199,8)" rx="2" ry="2" />
+<text  x="826.01" y="175.5" ></text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(72):_forward (229,352 us., 1.61%)</title><rect x="804.0" y="197" width="19.0" height="15.0" fill="rgb(224,28,47)" rx="2" ry="2" />
+<text  x="806.99" y="207.5" ></text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(213):_forward (229,352 us., 1.61%)</title><rect x="804.0" y="149" width="19.0" height="15.0" fill="rgb(233,57,25)" rx="2" ry="2" />
+<text  x="806.99" y="159.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTAttention (1,265,139 us., 8.89%)</title><rect x="57.6" y="197" width="104.9" height="15.0" fill="rgb(247,179,11)" rx="2" ry="2" />
+<text  x="60.56" y="207.5" >nn.Module:_I..</text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(213):_forward (154,662 us., 1.09%)</title><rect x="823.0" y="197" width="12.8" height="15.0" fill="rgb(230,221,6)" rx="2" ry="2" />
+<text  x="826.01" y="207.5" ></text>
+</g>
+<g >
+<title>profiling/utils.py(18):_profile_model (950,789 us., 6.68%)</title><rect x="241.7" y="149" width="78.9" height="15.0" fill="rgb(242,36,17)" rx="2" ry="2" />
+<text  x="244.71" y="159.5" >profiling..</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTAttention (2,572,478 us., 18.08%)</title><rect x="976.6" y="229" width="213.4" height="15.0" fill="rgb(209,41,3)" rx="2" ry="2" />
+<text  x="979.59" y="239.5" >nn.Module:_Int8OPTAttention</text>
+</g>
+<g >
+<title>transformers/models/opt/modeling_opt.py(840):_forward (8,238 us., 0.06%)</title><rect x="56.9" y="149" width="0.7" height="15.0" fill="rgb(212,75,42)" rx="2" ry="2" />
+<text  x="59.88" y="159.5" ></text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(346):_forward (1,601 us., 0.01%)</title><rect x="56.0" y="213" width="0.2" height="15.0" fill="rgb(252,139,48)" rx="2" ry="2" />
+<text  x="59.04" y="223.5" ></text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(24):_decorate_context (314,721 us., 2.21%)</title><rect x="823.0" y="229" width="26.1" height="15.0" fill="rgb(211,106,18)" rx="2" ry="2" />
+<text  x="826.01" y="239.5" >t..</text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(24):_decorate_context (1,265,139 us., 8.89%)</title><rect x="57.6" y="213" width="104.9" height="15.0" fill="rgb(244,181,29)" rx="2" ry="2" />
+<text  x="60.56" y="223.5" >torch/autogr..</text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(346):_forward (160,059 us., 1.13%)</title><rect x="835.8" y="117" width="13.3" height="15.0" fill="rgb(232,169,3)" rx="2" ry="2" />
+<text  x="838.84" y="127.5" ></text>
+</g>
+<g >
+<title>transformers/models/opt/modeling_opt.py(840):_forward (1,261,819 us., 8.87%)</title><rect x="871.2" y="133" width="104.7" height="15.0" fill="rgb(229,45,6)" rx="2" ry="2" />
+<text  x="874.20" y="143.5" >transformers..</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTForCausalLM (1,261,819 us., 8.87%)</title><rect x="871.2" y="117" width="104.7" height="15.0" fill="rgb(210,200,36)" rx="2" ry="2" />
+<text  x="874.20" y="127.5" >nn.Module:_I..</text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(72):_forward (1,265,139 us., 8.89%)</title><rect x="57.6" y="229" width="104.9" height="15.0" fill="rgb(220,33,11)" rx="2" ry="2" />
+<text  x="60.56" y="239.5" >torch_int/nn..</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoderLayer (1,265,139 us., 8.89%)</title><rect x="57.6" y="165" width="104.9" height="15.0" fill="rgb(228,226,26)" rx="2" ry="2" />
+<text  x="60.56" y="175.5" >nn.Module:_I..</text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(27):_decorate_context (2,572,478 us., 18.08%)</title><rect x="976.6" y="101" width="213.4" height="15.0" fill="rgb(232,179,53)" rx="2" ry="2" />
+<text  x="979.59" y="111.5" >torch/autograd/grad_mode.py(..</text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(27):_decorate_context (8,536 us., 0.06%)</title><rect x="56.2" y="117" width="0.7" height="15.0" fill="rgb(233,83,6)" rx="2" ry="2" />
+<text  x="59.17" y="127.5" ></text>
+</g>
+<g >
+<title>transformers/models/opt/modeling_opt.py(114):_forward (1,601 us., 0.01%)</title><rect x="56.0" y="245" width="0.2" height="15.0" fill="rgb(253,6,41)" rx="2" ry="2" />
+<text  x="59.04" y="255.5" ></text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(27):_decorate_context (468,175 us., 3.29%)</title><rect x="765.2" y="85" width="38.8" height="15.0" fill="rgb(230,69,25)" rx="2" ry="2" />
+<text  x="768.16" y="95.5" >tor..</text>
+</g>
+<g >
+<title>transformers/models/opt/modeling_opt.py(840):_forward (7,286 us., 0.05%)</title><rect x="764.6" y="165" width="0.6" height="15.0" fill="rgb(235,196,3)" rx="2" ry="2" />
+<text  x="767.55" y="175.5" ></text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(69):__shape (404,141 us., 2.84%)</title><rect x="321.2" y="245" width="33.6" height="15.0" fill="rgb(244,118,33)" rx="2" ry="2" />
+<text  x="324.25" y="255.5" >to..</text>
+</g>
+<g >
+<title>&lt;built-in_method_linear_a8_w8_bfp32_ofp32_of_PyCapsule_object_at_0x7fececa197b0&gt; (314,721 us., 2.21%)</title><rect x="823.0" y="261" width="26.1" height="15.0" fill="rgb(244,165,34)" rx="2" ry="2" />
+<text  x="826.01" y="271.5" >&lt;..</text>
+</g>
+<g >
+<title>transformers/models/opt/modeling_opt.py(840):_forward (8,536 us., 0.06%)</title><rect x="56.2" y="165" width="0.7" height="15.0" fill="rgb(234,144,43)" rx="2" ry="2" />
+<text  x="59.17" y="175.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTForCausalLM (8,238 us., 0.06%)</title><rect x="56.9" y="133" width="0.7" height="15.0" fill="rgb(252,105,14)" rx="2" ry="2" />
+<text  x="59.88" y="143.5" ></text>
+</g>
+<g >
+<title>profiling/utils.py(18):_profile_model (404,141 us., 2.84%)</title><rect x="321.2" y="85" width="33.6" height="15.0" fill="rgb(235,111,13)" rx="2" ry="2" />
+<text  x="324.25" y="95.5" >pr..</text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(72):_forward (2,572,478 us., 18.08%)</title><rect x="976.6" y="261" width="213.4" height="15.0" fill="rgb(246,13,42)" rx="2" ry="2" />
+<text  x="979.59" y="271.5" >torch_int/nn/opt.py(72):_for..</text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(27):_decorate_context (955,141 us., 6.71%)</title><rect x="162.5" y="101" width="79.2" height="15.0" fill="rgb(225,88,47)" rx="2" ry="2" />
+<text  x="165.49" y="111.5" >torch/aut..</text>
+</g>
+<g >
+<title>nn.Module:_OPTLearnedPositionalEmbedding (8,238 us., 0.06%)</title><rect x="56.9" y="197" width="0.7" height="15.0" fill="rgb(225,208,52)" rx="2" ry="2" />
+<text  x="59.88" y="207.5" ></text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(346):_forward (229,352 us., 1.61%)</title><rect x="804.0" y="117" width="19.0" height="15.0" fill="rgb(244,164,40)" rx="2" ry="2" />
+<text  x="806.99" y="127.5" ></text>
+</g>
+<g >
+<title>profiling/utils.py(18):_profile_model (955,141 us., 6.71%)</title><rect x="162.5" y="117" width="79.2" height="15.0" fill="rgb(238,224,50)" rx="2" ry="2" />
+<text  x="165.49" y="127.5" >profiling..</text>
+</g>
+<g >
+<title>&lt;built-in_function_linear&gt; (555,062 us., 3.90%)</title><rect x="10.0" y="261" width="46.0" height="15.0" fill="rgb(207,163,42)" rx="2" ry="2" />
+<text  x="13.00" y="271.5" >&lt;bui..</text>
+</g>
+<g >
+<title>nn.Module:_LayerNormQ (955,141 us., 6.71%)</title><rect x="162.5" y="229" width="79.2" height="15.0" fill="rgb(233,164,2)" rx="2" ry="2" />
+<text  x="165.49" y="239.5" >nn.Module..</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTForCausalLM (4,938,342 us., 34.71%)</title><rect x="354.8" y="117" width="409.6" height="15.0" fill="rgb(236,130,2)" rx="2" ry="2" />
+<text  x="357.77" y="127.5" >nn.Module:_Int8OPTForCausalLM</text>
+</g>
+<g >
+<title>torch_int/nn/linear.py(40):_forward (229,352 us., 1.61%)</title><rect x="804.0" y="245" width="19.0" height="15.0" fill="rgb(216,172,27)" rx="2" ry="2" />
+<text  x="806.99" y="255.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoderLayer (1,261,819 us., 8.87%)</title><rect x="871.2" y="181" width="104.7" height="15.0" fill="rgb(227,182,48)" rx="2" ry="2" />
+<text  x="874.20" y="191.5" >nn.Module:_I..</text>
+</g>
+<g >
+<title>profiling/utils.py(18):_profile_model (160,059 us., 1.13%)</title><rect x="835.8" y="53" width="13.3" height="15.0" fill="rgb(238,80,33)" rx="2" ry="2" />
+<text  x="838.84" y="63.5" ></text>
+</g>
+<g >
+<title>transformers/models/opt/modeling_opt.py(840):_forward (229,352 us., 1.61%)</title><rect x="804.0" y="85" width="19.0" height="15.0" fill="rgb(237,137,5)" rx="2" ry="2" />
+<text  x="806.99" y="95.5" ></text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(27):_decorate_context (1,261,819 us., 8.87%)</title><rect x="871.2" y="85" width="104.7" height="15.0" fill="rgb(251,229,1)" rx="2" ry="2" />
+<text  x="874.20" y="95.5" >torch/autogr..</text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(213):_forward (468,175 us., 3.29%)</title><rect x="765.2" y="197" width="38.8" height="15.0" fill="rgb(228,102,48)" rx="2" ry="2" />
+<text  x="768.16" y="207.5" >tor..</text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(346):_forward (266,345 us., 1.87%)</title><rect x="849.1" y="165" width="22.1" height="15.0" fill="rgb(211,190,31)" rx="2" ry="2" />
+<text  x="852.11" y="175.5" >t..</text>
+</g>
+<g >
+<title>torch/nn/modules/normalization.py(188):_forward (7,286 us., 0.05%)</title><rect x="764.6" y="229" width="0.6" height="15.0" fill="rgb(247,93,29)" rx="2" ry="2" />
+<text  x="767.55" y="239.5" ></text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(27):_decorate_context (154,662 us., 1.09%)</title><rect x="823.0" y="85" width="12.8" height="15.0" fill="rgb(222,152,31)" rx="2" ry="2" />
+<text  x="826.01" y="95.5" ></text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(24):_decorate_context (266,345 us., 1.87%)</title><rect x="849.1" y="229" width="22.1" height="15.0" fill="rgb(240,67,38)" rx="2" ry="2" />
+<text  x="852.11" y="239.5" >t..</text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(24):_decorate_context (4,938,342 us., 34.71%)</title><rect x="354.8" y="229" width="409.6" height="15.0" fill="rgb(250,141,25)" rx="2" ry="2" />
+<text  x="357.77" y="239.5" >torch/autograd/grad_mode.py(24):_decorate_context</text>
+</g>
+<g >
+<title>torch/nn/functional.py(2099):_embedding (16,774 us., 0.12%)</title><rect x="56.2" y="245" width="1.4" height="15.0" fill="rgb(222,99,50)" rx="2" ry="2" />
+<text  x="59.17" y="255.5" ></text>
+</g>
+<g >
+<title>torch_int/nn/fused.py(13):_forward (955,141 us., 6.71%)</title><rect x="162.5" y="245" width="79.2" height="15.0" fill="rgb(212,42,22)" rx="2" ry="2" />
+<text  x="165.49" y="255.5" >torch_int..</text>
+</g>
+<g >
+<title>&lt;built-in_method_linear_a8_w8_b8_o8_of_PyCapsule_object_at_0x7fececa19810&gt; (229,352 us., 1.61%)</title><rect x="804.0" y="261" width="19.0" height="15.0" fill="rgb(246,59,0)" rx="2" ry="2" />
+<text  x="806.99" y="271.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoder (7,627 us., 0.05%)</title><rect x="976.0" y="245" width="0.6" height="15.0" fill="rgb(254,47,20)" rx="2" ry="2" />
+<text  x="978.96" y="255.5" ></text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(27):_decorate_context (229,352 us., 1.61%)</title><rect x="804.0" y="37" width="19.0" height="15.0" fill="rgb(242,219,9)" rx="2" ry="2" />
+<text  x="806.99" y="47.5" ></text>
+</g>
+<g >
+<title>transformers/models/opt/modeling_opt.py(840):_forward (1,601 us., 0.01%)</title><rect x="56.0" y="181" width="0.2" height="15.0" fill="rgb(251,137,16)" rx="2" ry="2" />
+<text  x="59.04" y="191.5" ></text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(27):_decorate_context (7,286 us., 0.05%)</title><rect x="764.6" y="117" width="0.6" height="15.0" fill="rgb(250,184,11)" rx="2" ry="2" />
+<text  x="767.55" y="127.5" ></text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(27):_decorate_context (8,197 us., 0.06%)</title><rect x="320.6" y="149" width="0.6" height="15.0" fill="rgb(242,161,29)" rx="2" ry="2" />
+<text  x="323.57" y="159.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTForCausalLM (1,601 us., 0.01%)</title><rect x="56.0" y="165" width="0.2" height="15.0" fill="rgb(214,212,5)" rx="2" ry="2" />
+<text  x="59.04" y="175.5" ></text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(27):_decorate_context (950,789 us., 6.68%)</title><rect x="241.7" y="133" width="78.9" height="15.0" fill="rgb(206,129,35)" rx="2" ry="2" />
+<text  x="244.71" y="143.5" >torch/aut..</text>
+</g>
+<g >
+<title>torch/nn/functional.py(2488):_layer_norm (475,461 us., 3.34%)</title><rect x="764.6" y="245" width="39.4" height="15.0" fill="rgb(224,145,5)" rx="2" ry="2" />
+<text  x="767.55" y="255.5" >tor..</text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(27):_decorate_context (7,627 us., 0.05%)</title><rect x="976.0" y="181" width="0.6" height="15.0" fill="rgb(225,129,9)" rx="2" ry="2" />
+<text  x="978.96" y="191.5" ></text>
+</g>
+<g >
+<title>torch_int/nn/linear.py(90):_forward (266,345 us., 1.87%)</title><rect x="849.1" y="245" width="22.1" height="15.0" fill="rgb(219,0,46)" rx="2" ry="2" />
+<text  x="852.11" y="255.5" >t..</text>
+</g>
+<g >
+<title>profiling/utils.py(18):_profile_model (7,627 us., 0.05%)</title><rect x="976.0" y="197" width="0.6" height="15.0" fill="rgb(238,37,45)" rx="2" ry="2" />
+<text  x="978.96" y="207.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoder (8,238 us., 0.06%)</title><rect x="56.9" y="165" width="0.7" height="15.0" fill="rgb(205,107,35)" rx="2" ry="2" />
+<text  x="59.88" y="175.5" ></text>
+</g>
+<g >
+<title>nn.Module:_W8A8B8O8LinearReLU (266,345 us., 1.87%)</title><rect x="849.1" y="213" width="22.1" height="15.0" fill="rgb(216,206,52)" rx="2" ry="2" />
+<text  x="852.11" y="223.5" >n..</text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(24):_decorate_context (2,572,478 us., 18.08%)</title><rect x="976.6" y="245" width="213.4" height="15.0" fill="rgb(215,88,17)" rx="2" ry="2" />
+<text  x="979.59" y="255.5" >torch/autograd/grad_mode.py(..</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTForCausalLM (7,286 us., 0.05%)</title><rect x="764.6" y="149" width="0.6" height="15.0" fill="rgb(239,168,21)" rx="2" ry="2" />
+<text  x="767.55" y="159.5" ></text>
+</g>
+<g >
+<title>torch_int/nn/linear.py(225):_forward (314,721 us., 2.21%)</title><rect x="823.0" y="245" width="26.1" height="15.0" fill="rgb(222,136,5)" rx="2" ry="2" />
+<text  x="826.01" y="255.5" >t..</text>
+</g>
+<g >
+<title>nn.Module:_Linear (555,062 us., 3.90%)</title><rect x="10.0" y="229" width="46.0" height="15.0" fill="rgb(217,225,23)" rx="2" ry="2" />
+<text  x="13.00" y="239.5" >nn.M..</text>
+</g>
+<g >
+<title>profiling/utils.py(18):_profile_model (555,062 us., 3.90%)</title><rect x="10.0" y="181" width="46.0" height="15.0" fill="rgb(247,81,13)" rx="2" ry="2" />
+<text  x="13.00" y="191.5" >prof..</text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(346):_forward (950,789 us., 6.68%)</title><rect x="241.7" y="213" width="78.9" height="15.0" fill="rgb(210,56,22)" rx="2" ry="2" />
+<text  x="244.71" y="223.5" >torch_int..</text>
+</g>
+<g >
+<title>profiling/utils.py(18):_profile_model (2,153 us., 0.02%)</title><rect x="764.4" y="149" width="0.2" height="15.0" fill="rgb(216,24,53)" rx="2" ry="2" />
+<text  x="767.38" y="159.5" ></text>
+</g>
+<g >
+<title>transformers/models/opt/modeling_opt.py(840):_forward (4,938,342 us., 34.71%)</title><rect x="354.8" y="133" width="409.6" height="15.0" fill="rgb(254,143,18)" rx="2" ry="2" />
+<text  x="357.77" y="143.5" >transformers/models/opt/modeling_opt.py(840):_forward</text>
+</g>
+<g >
+<title>transformers/models/opt/modeling_opt.py(840):_forward (1,265,139 us., 8.89%)</title><rect x="57.6" y="117" width="104.9" height="15.0" fill="rgb(227,32,35)" rx="2" ry="2" />
+<text  x="60.56" y="127.5" >transformers..</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoder (229,352 us., 1.61%)</title><rect x="804.0" y="101" width="19.0" height="15.0" fill="rgb(230,5,21)" rx="2" ry="2" />
+<text  x="806.99" y="111.5" ></text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(346):_forward (8,536 us., 0.06%)</title><rect x="56.2" y="197" width="0.7" height="15.0" fill="rgb(235,67,46)" rx="2" ry="2" />
+<text  x="59.17" y="207.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoder (468,175 us., 3.29%)</title><rect x="765.2" y="149" width="38.8" height="15.0" fill="rgb(237,14,47)" rx="2" ry="2" />
+<text  x="768.16" y="159.5" >nn...</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTForCausalLM (555,062 us., 3.90%)</title><rect x="10.0" y="197" width="46.0" height="15.0" fill="rgb(213,46,33)" rx="2" ry="2" />
+<text  x="13.00" y="207.5" >nn.M..</text>
+</g>
+<g >
+<title>profiling/utils.py(18):_profile_model (1,601 us., 0.01%)</title><rect x="56.0" y="149" width="0.2" height="15.0" fill="rgb(229,218,17)" rx="2" ry="2" />
+<text  x="59.04" y="159.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoder (7,286 us., 0.05%)</title><rect x="764.6" y="181" width="0.6" height="15.0" fill="rgb(251,49,45)" rx="2" ry="2" />
+<text  x="767.55" y="191.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTForCausalLM (266,345 us., 1.87%)</title><rect x="849.1" y="117" width="22.1" height="15.0" fill="rgb(253,115,21)" rx="2" ry="2" />
+<text  x="852.11" y="127.5" >n..</text>
+</g>
+<g >
+<title>profiling/utils.py(18):_profile_model (7,286 us., 0.05%)</title><rect x="764.6" y="133" width="0.6" height="15.0" fill="rgb(212,113,37)" rx="2" ry="2" />
+<text  x="767.55" y="143.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTForCausalLM (8,536 us., 0.06%)</title><rect x="56.2" y="149" width="0.7" height="15.0" fill="rgb(241,83,8)" rx="2" ry="2" />
+<text  x="59.17" y="159.5" ></text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(27):_decorate_context (1,265,139 us., 8.89%)</title><rect x="57.6" y="69" width="104.9" height="15.0" fill="rgb(238,154,42)" rx="2" ry="2" />
+<text  x="60.56" y="79.5" >torch/autogr..</text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(72):_forward (404,141 us., 2.84%)</title><rect x="321.2" y="229" width="33.6" height="15.0" fill="rgb(215,221,7)" rx="2" ry="2" />
+<text  x="324.25" y="239.5" >to..</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoder (404,141 us., 2.84%)</title><rect x="321.2" y="133" width="33.6" height="15.0" fill="rgb(210,211,52)" rx="2" ry="2" />
+<text  x="324.25" y="143.5" >nn..</text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(72):_forward (160,059 us., 1.13%)</title><rect x="835.8" y="197" width="13.3" height="15.0" fill="rgb(210,185,38)" rx="2" ry="2" />
+<text  x="838.84" y="207.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTForCausalLM (229,352 us., 1.61%)</title><rect x="804.0" y="69" width="19.0" height="15.0" fill="rgb(212,83,11)" rx="2" ry="2" />
+<text  x="806.99" y="79.5" ></text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(24):_decorate_context (1,261,819 us., 8.87%)</title><rect x="871.2" y="229" width="104.7" height="15.0" fill="rgb(217,182,52)" rx="2" ry="2" />
+<text  x="874.20" y="239.5" >torch/autogr..</text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(325):__prepare_decoder_attention_mask (8,197 us., 0.06%)</title><rect x="320.6" y="245" width="0.6" height="15.0" fill="rgb(218,180,7)" rx="2" ry="2" />
+<text  x="323.57" y="255.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoder (8,536 us., 0.06%)</title><rect x="56.2" y="181" width="0.7" height="15.0" fill="rgb(249,38,19)" rx="2" ry="2" />
+<text  x="59.17" y="191.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTAttention (4,938,342 us., 34.71%)</title><rect x="354.8" y="213" width="409.6" height="15.0" fill="rgb(210,4,32)" rx="2" ry="2" />
+<text  x="357.77" y="223.5" >nn.Module:_Int8OPTAttention</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoder (1,265,139 us., 8.89%)</title><rect x="57.6" y="133" width="104.9" height="15.0" fill="rgb(234,15,26)" rx="2" ry="2" />
+<text  x="60.56" y="143.5" >nn.Module:_I..</text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(213):_forward (4,938,342 us., 34.71%)</title><rect x="354.8" y="197" width="409.6" height="15.0" fill="rgb(253,150,10)" rx="2" ry="2" />
+<text  x="357.77" y="207.5" >torch_int/nn/opt.py(213):_forward</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTAttention (1,261,819 us., 8.87%)</title><rect x="871.2" y="213" width="104.7" height="15.0" fill="rgb(251,217,17)" rx="2" ry="2" />
+<text  x="874.20" y="223.5" >nn.Module:_I..</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoderLayer (468,175 us., 3.29%)</title><rect x="765.2" y="181" width="38.8" height="15.0" fill="rgb(224,30,52)" rx="2" ry="2" />
+<text  x="768.16" y="191.5" >nn...</text>
+</g>
+<g >
+<title>profiling/utils.py(18):_profile_model (266,345 us., 1.87%)</title><rect x="849.1" y="101" width="22.1" height="15.0" fill="rgb(231,69,54)" rx="2" ry="2" />
+<text  x="852.11" y="111.5" >p..</text>
+</g>
+<g >
+<title>nn.Module:_W8A8BFP32OFP32Linear (314,721 us., 2.21%)</title><rect x="823.0" y="213" width="26.1" height="15.0" fill="rgb(206,61,41)" rx="2" ry="2" />
+<text  x="826.01" y="223.5" >n..</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoder (2,572,478 us., 18.08%)</title><rect x="976.6" y="165" width="213.4" height="15.0" fill="rgb(211,116,10)" rx="2" ry="2" />
+<text  x="979.59" y="175.5" >nn.Module:_Int8OPTDecoder</text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(346):_forward (2,572,478 us., 18.08%)</title><rect x="976.6" y="181" width="213.4" height="15.0" fill="rgb(234,78,12)" rx="2" ry="2" />
+<text  x="979.59" y="191.5" >torch_int/nn/opt.py(346):_fo..</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoder (950,789 us., 6.68%)</title><rect x="241.7" y="197" width="78.9" height="15.0" fill="rgb(249,30,1)" rx="2" ry="2" />
+<text  x="244.71" y="207.5" >nn.Module..</text>
+</g>
+<g >
+<title>nn.Module:_Embedding (8,536 us., 0.06%)</title><rect x="56.2" y="213" width="0.7" height="15.0" fill="rgb(218,158,25)" rx="2" ry="2" />
+<text  x="59.17" y="223.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoderLayer (955,141 us., 6.71%)</title><rect x="162.5" y="197" width="79.2" height="15.0" fill="rgb(246,215,44)" rx="2" ry="2" />
+<text  x="165.49" y="207.5" >nn.Module..</text>
+</g>
+<g >
+<title>torch/nn/modules/sparse.py(157):_forward (16,774 us., 0.12%)</title><rect x="56.2" y="229" width="1.4" height="15.0" fill="rgb(252,218,10)" rx="2" ry="2" />
+<text  x="59.17" y="239.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTForCausalLM (950,789 us., 6.68%)</title><rect x="241.7" y="165" width="78.9" height="15.0" fill="rgb(221,84,7)" rx="2" ry="2" />
+<text  x="244.71" y="175.5" >nn.Module..</text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(346):_forward (1,265,139 us., 8.89%)</title><rect x="57.6" y="149" width="104.9" height="15.0" fill="rgb(245,9,16)" rx="2" ry="2" />
+<text  x="60.56" y="159.5" >torch_int/nn..</text>
+</g>
+<g >
+<title>nn.Module:_W8A8B8O8Linear (229,352 us., 1.61%)</title><rect x="804.0" y="213" width="19.0" height="15.0" fill="rgb(244,105,46)" rx="2" ry="2" />
+<text  x="806.99" y="223.5" ></text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(213):_forward (266,345 us., 1.87%)</title><rect x="849.1" y="197" width="22.1" height="15.0" fill="rgb(211,38,4)" rx="2" ry="2" />
+<text  x="852.11" y="207.5" >t..</text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(346):_forward (8,197 us., 0.06%)</title><rect x="320.6" y="229" width="0.6" height="15.0" fill="rgb(239,18,35)" rx="2" ry="2" />
+<text  x="323.57" y="239.5" ></text>
+</g>
+<g >
+<title>transformers/models/opt/modeling_opt.py(840):_forward (266,345 us., 1.87%)</title><rect x="849.1" y="133" width="22.1" height="15.0" fill="rgb(217,194,29)" rx="2" ry="2" />
+<text  x="852.11" y="143.5" >t..</text>
+</g>
+<g >
+<title>transformers/models/opt/modeling_opt.py(840):_forward (2,153 us., 0.02%)</title><rect x="764.4" y="181" width="0.2" height="15.0" fill="rgb(226,177,12)" rx="2" ry="2" />
+<text  x="767.38" y="191.5" ></text>
+</g>
+<g >
+<title>torch/nn/modules/linear.py(113):_forward (555,062 us., 3.90%)</title><rect x="10.0" y="245" width="46.0" height="15.0" fill="rgb(227,89,47)" rx="2" ry="2" />
+<text  x="13.00" y="255.5" >torc..</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTForCausalLM (2,153 us., 0.02%)</title><rect x="764.4" y="165" width="0.2" height="15.0" fill="rgb(237,0,14)" rx="2" ry="2" />
+<text  x="767.38" y="175.5" ></text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(213):_forward (1,261,819 us., 8.87%)</title><rect x="871.2" y="197" width="104.7" height="15.0" fill="rgb(213,115,33)" rx="2" ry="2" />
+<text  x="874.20" y="207.5" >torch_int/nn..</text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(24):_decorate_context (160,059 us., 1.13%)</title><rect x="835.8" y="181" width="13.3" height="15.0" fill="rgb(207,124,12)" rx="2" ry="2" />
+<text  x="838.84" y="191.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoder (266,345 us., 1.87%)</title><rect x="849.1" y="149" width="22.1" height="15.0" fill="rgb(229,24,16)" rx="2" ry="2" />
+<text  x="852.11" y="159.5" >n..</text>
+</g>
+<g >
+<title>profiling/utils.py(18):_profile_model (8,197 us., 0.06%)</title><rect x="320.6" y="165" width="0.6" height="15.0" fill="rgb(213,37,3)" rx="2" ry="2" />
+<text  x="323.57" y="175.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoderLayer (4,938,342 us., 34.71%)</title><rect x="354.8" y="181" width="409.6" height="15.0" fill="rgb(253,23,2)" rx="2" ry="2" />
+<text  x="357.77" y="191.5" >nn.Module:_Int8OPTDecoderLayer</text>
+</g>
+<g >
+<title>profiling/utils.py(18):_profile_model (229,352 us., 1.61%)</title><rect x="804.0" y="53" width="19.0" height="15.0" fill="rgb(237,140,31)" rx="2" ry="2" />
+<text  x="806.99" y="63.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoder (8,197 us., 0.06%)</title><rect x="320.6" y="213" width="0.6" height="15.0" fill="rgb(214,51,49)" rx="2" ry="2" />
+<text  x="323.57" y="223.5" ></text>
+</g>
+<g >
+<title>nn.Module:_LayerNorm (7,286 us., 0.05%)</title><rect x="764.6" y="213" width="0.6" height="15.0" fill="rgb(211,33,52)" rx="2" ry="2" />
+<text  x="767.55" y="223.5" ></text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(325):__prepare_decoder_attention_mask (2,153 us., 0.02%)</title><rect x="764.4" y="229" width="0.2" height="15.0" fill="rgb(241,110,49)" rx="2" ry="2" />
+<text  x="767.38" y="239.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTForCausalLM (154,662 us., 1.09%)</title><rect x="823.0" y="117" width="12.8" height="15.0" fill="rgb(213,149,24)" rx="2" ry="2" />
+<text  x="826.01" y="127.5" ></text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(213):_forward (950,789 us., 6.68%)</title><rect x="241.7" y="245" width="78.9" height="15.0" fill="rgb(241,185,8)" rx="2" ry="2" />
+<text  x="244.71" y="255.5" >torch_int..</text>
+</g>
+<g >
+<title>&lt;built-in_method_max_of_type_object_at_0x7fede157e9c0&gt; (1,261,819 us., 8.87%)</title><rect x="871.2" y="261" width="104.7" height="15.0" fill="rgb(240,1,52)" rx="2" ry="2" />
+<text  x="874.20" y="271.5" >&lt;built-in_me..</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoderLayer (266,345 us., 1.87%)</title><rect x="849.1" y="181" width="22.1" height="15.0" fill="rgb(250,1,21)" rx="2" ry="2" />
+<text  x="852.11" y="191.5" >n..</text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(27):_decorate_context (555,062 us., 3.90%)</title><rect x="10.0" y="165" width="46.0" height="15.0" fill="rgb(205,111,53)" rx="2" ry="2" />
+<text  x="13.00" y="175.5" >torc..</text>
+</g>
+<g >
+<title>nn.Module:_LayerNormQ (468,175 us., 3.29%)</title><rect x="765.2" y="213" width="38.8" height="15.0" fill="rgb(205,120,37)" rx="2" ry="2" />
+<text  x="768.16" y="223.5" >nn...</text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(346):_forward (2,153 us., 0.02%)</title><rect x="764.4" y="213" width="0.2" height="15.0" fill="rgb(239,191,37)" rx="2" ry="2" />
+<text  x="767.38" y="223.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoderLayer (160,059 us., 1.13%)</title><rect x="835.8" y="133" width="13.3" height="15.0" fill="rgb(211,197,11)" rx="2" ry="2" />
+<text  x="838.84" y="143.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoder (1,601 us., 0.01%)</title><rect x="56.0" y="197" width="0.2" height="15.0" fill="rgb(246,181,32)" rx="2" ry="2" />
+<text  x="59.04" y="207.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTForCausalLM (8,197 us., 0.06%)</title><rect x="320.6" y="181" width="0.6" height="15.0" fill="rgb(245,119,12)" rx="2" ry="2" />
+<text  x="323.57" y="191.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTAttention (404,141 us., 2.84%)</title><rect x="321.2" y="197" width="33.6" height="15.0" fill="rgb(237,4,20)" rx="2" ry="2" />
+<text  x="324.25" y="207.5" >nn..</text>
+</g>
+<g >
+<title>profiling/utils.py(18):_profile_model (1,261,819 us., 8.87%)</title><rect x="871.2" y="101" width="104.7" height="15.0" fill="rgb(212,136,30)" rx="2" ry="2" />
+<text  x="874.20" y="111.5" >profiling/ut..</text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(72):_forward (4,938,342 us., 34.71%)</title><rect x="354.8" y="245" width="409.6" height="15.0" fill="rgb(236,43,31)" rx="2" ry="2" />
+<text  x="357.77" y="255.5" >torch_int/nn/opt.py(72):_forward</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoder (160,059 us., 1.13%)</title><rect x="835.8" y="101" width="13.3" height="15.0" fill="rgb(230,115,35)" rx="2" ry="2" />
+<text  x="838.84" y="111.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTAttention (160,059 us., 1.13%)</title><rect x="835.8" y="165" width="13.3" height="15.0" fill="rgb(227,117,31)" rx="2" ry="2" />
+<text  x="838.84" y="175.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoderLayer (2,572,478 us., 18.08%)</title><rect x="976.6" y="197" width="213.4" height="15.0" fill="rgb(234,11,31)" rx="2" ry="2" />
+<text  x="979.59" y="207.5" >nn.Module:_Int8OPTDecoderLayer</text>
+</g>
+<g >
+<title>profiling/utils.py(18):_profile_model (1,265,139 us., 8.89%)</title><rect x="57.6" y="85" width="104.9" height="15.0" fill="rgb(250,126,4)" rx="2" ry="2" />
+<text  x="60.56" y="95.5" >profiling/ut..</text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(213):_forward (160,059 us., 1.13%)</title><rect x="835.8" y="149" width="13.3" height="15.0" fill="rgb(238,72,26)" rx="2" ry="2" />
+<text  x="838.84" y="159.5" ></text>
+</g>
+<g >
+<title>torch/nn/functional.py(1804):_softmax (1,265,139 us., 8.89%)</title><rect x="57.6" y="245" width="104.9" height="15.0" fill="rgb(245,194,23)" rx="2" ry="2" />
+<text  x="60.56" y="255.5" >torch/nn/fun..</text>
+</g>
+<g >
+<title>&lt;built-in_method_encode_of_str_object_at_0x7feced0764b0&gt; (8,524,203 us., 59.91%)</title><rect x="57.6" y="261" width="707.0" height="15.0" fill="rgb(219,13,14)" rx="2" ry="2" />
+<text  x="60.56" y="271.5" >&lt;built-in_method_encode_of_str_object_at_0x7feced0764b0&gt;</text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(24):_decorate_context (229,352 us., 1.61%)</title><rect x="804.0" y="181" width="19.0" height="15.0" fill="rgb(228,59,21)" rx="2" ry="2" />
+<text  x="806.99" y="191.5" ></text>
+</g>
+<g >
+<title>transformers/models/opt/modeling_opt.py(840):_forward (955,141 us., 6.71%)</title><rect x="162.5" y="149" width="79.2" height="15.0" fill="rgb(225,74,11)" rx="2" ry="2" />
+<text  x="165.49" y="159.5" >transform..</text>
+</g>
+<g >
+<title>nn.Module:_OPTLearnedPositionalEmbedding (1,601 us., 0.01%)</title><rect x="56.0" y="229" width="0.2" height="15.0" fill="rgb(208,225,51)" rx="2" ry="2" />
+<text  x="59.04" y="239.5" ></text>
+</g>
+<g >
+<title>transformers/models/opt/modeling_opt.py(840):_forward (950,789 us., 6.68%)</title><rect x="241.7" y="181" width="78.9" height="15.0" fill="rgb(246,164,43)" rx="2" ry="2" />
+<text  x="244.71" y="191.5" >transform..</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoder (955,141 us., 6.71%)</title><rect x="162.5" y="165" width="79.2" height="15.0" fill="rgb(243,197,45)" rx="2" ry="2" />
+<text  x="165.49" y="175.5" >nn.Module..</text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(346):_forward (4,938,342 us., 34.71%)</title><rect x="354.8" y="165" width="409.6" height="15.0" fill="rgb(229,70,47)" rx="2" ry="2" />
+<text  x="357.77" y="175.5" >torch_int/nn/opt.py(346):_forward</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoderLayer (950,789 us., 6.68%)</title><rect x="241.7" y="229" width="78.9" height="15.0" fill="rgb(224,228,46)" rx="2" ry="2" />
+<text  x="244.71" y="239.5" >nn.Module..</text>
+</g>
+<g >
+<title>&lt;built-in_method_embedding_of_type_object_at_0x7fede157e9c0&gt; (16,774 us., 0.12%)</title><rect x="56.2" y="261" width="1.4" height="15.0" fill="rgb(247,186,23)" rx="2" ry="2" />
+<text  x="59.17" y="271.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoder (2,153 us., 0.02%)</title><rect x="764.4" y="197" width="0.2" height="15.0" fill="rgb(243,188,45)" rx="2" ry="2" />
+<text  x="767.38" y="207.5" ></text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(27):_decorate_context (160,059 us., 1.13%)</title><rect x="835.8" y="37" width="13.3" height="15.0" fill="rgb(217,115,9)" rx="2" ry="2" />
+<text  x="838.84" y="47.5" ></text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(27):_decorate_context (404,141 us., 2.84%)</title><rect x="321.2" y="69" width="33.6" height="15.0" fill="rgb(208,63,50)" rx="2" ry="2" />
+<text  x="324.25" y="79.5" >to..</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoderLayer (154,662 us., 1.09%)</title><rect x="823.0" y="181" width="12.8" height="15.0" fill="rgb(233,210,24)" rx="2" ry="2" />
+<text  x="826.01" y="191.5" ></text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(213):_forward (2,572,478 us., 18.08%)</title><rect x="976.6" y="213" width="213.4" height="15.0" fill="rgb(235,55,23)" rx="2" ry="2" />
+<text  x="979.59" y="223.5" >torch_int/nn/opt.py(213):_fo..</text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(24):_decorate_context (404,141 us., 2.84%)</title><rect x="321.2" y="213" width="33.6" height="15.0" fill="rgb(206,195,19)" rx="2" ry="2" />
+<text  x="324.25" y="223.5" >to..</text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(27):_decorate_context (266,345 us., 1.87%)</title><rect x="849.1" y="85" width="22.1" height="15.0" fill="rgb(228,100,48)" rx="2" ry="2" />
+<text  x="852.11" y="95.5" >t..</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTForCausalLM (160,059 us., 1.13%)</title><rect x="835.8" y="69" width="13.3" height="15.0" fill="rgb(233,60,39)" rx="2" ry="2" />
+<text  x="838.84" y="79.5" ></text>
+</g>
+<g >
+<title>profiling/utils.py(18):_profile_model (154,662 us., 1.09%)</title><rect x="823.0" y="101" width="12.8" height="15.0" fill="rgb(238,134,42)" rx="2" ry="2" />
+<text  x="826.01" y="111.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTForCausalLM (468,175 us., 3.29%)</title><rect x="765.2" y="117" width="38.8" height="15.0" fill="rgb(222,107,40)" rx="2" ry="2" />
+<text  x="768.16" y="127.5" >nn...</text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(72):_forward (1,261,819 us., 8.87%)</title><rect x="871.2" y="245" width="104.7" height="15.0" fill="rgb(209,117,26)" rx="2" ry="2" />
+<text  x="874.20" y="255.5" >torch_int/nn..</text>
+</g>
+<g >
+<title>profiling/utils.py(18):_profile_model (468,175 us., 3.29%)</title><rect x="765.2" y="101" width="38.8" height="15.0" fill="rgb(251,209,45)" rx="2" ry="2" />
+<text  x="768.16" y="111.5" >pro..</text>
+</g>
+<g >
+<title>transformers/models/opt/modeling_opt.py(840):_forward (7,627 us., 0.05%)</title><rect x="976.0" y="229" width="0.6" height="15.0" fill="rgb(250,83,8)" rx="2" ry="2" />
+<text  x="978.96" y="239.5" ></text>
+</g>
+<g >
+<title>transformers/models/opt/modeling_opt.py(840):_forward (160,059 us., 1.13%)</title><rect x="835.8" y="85" width="13.3" height="15.0" fill="rgb(211,119,39)" rx="2" ry="2" />
+<text  x="838.84" y="95.5" ></text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(27):_decorate_context (1,601 us., 0.01%)</title><rect x="56.0" y="133" width="0.2" height="15.0" fill="rgb(207,176,27)" rx="2" ry="2" />
+<text  x="59.04" y="143.5" ></text>
+</g>
+<g >
+<title>&lt;built-in_method_cumsum_of_type_object_at_0x7fede157e9c0&gt; (1,601 us., 0.01%)</title><rect x="56.0" y="261" width="0.2" height="15.0" fill="rgb(229,39,29)" rx="2" ry="2" />
+<text  x="59.04" y="271.5" ></text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(213):_forward (955,141 us., 6.71%)</title><rect x="162.5" y="213" width="79.2" height="15.0" fill="rgb(229,88,15)" rx="2" ry="2" />
+<text  x="165.49" y="223.5" >torch_int..</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTForCausalLM (404,141 us., 2.84%)</title><rect x="321.2" y="101" width="33.6" height="15.0" fill="rgb(213,1,40)" rx="2" ry="2" />
+<text  x="324.25" y="111.5" >nn..</text>
+</g>
+<g >
+<title>transformers/models/opt/modeling_opt.py(840):_forward (468,175 us., 3.29%)</title><rect x="765.2" y="133" width="38.8" height="15.0" fill="rgb(224,228,17)" rx="2" ry="2" />
+<text  x="768.16" y="143.5" >tra..</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTForCausalLM (7,627 us., 0.05%)</title><rect x="976.0" y="213" width="0.6" height="15.0" fill="rgb(245,213,24)" rx="2" ry="2" />
+<text  x="978.96" y="223.5" ></text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(346):_forward (955,141 us., 6.71%)</title><rect x="162.5" y="181" width="79.2" height="15.0" fill="rgb(219,55,52)" rx="2" ry="2" />
+<text  x="165.49" y="191.5" >torch_int..</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoderLayer (229,352 us., 1.61%)</title><rect x="804.0" y="133" width="19.0" height="15.0" fill="rgb(214,21,2)" rx="2" ry="2" />
+<text  x="806.99" y="143.5" ></text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(27):_decorate_context (2,153 us., 0.02%)</title><rect x="764.4" y="133" width="0.2" height="15.0" fill="rgb(230,147,31)" rx="2" ry="2" />
+<text  x="767.38" y="143.5" ></text>
+</g>
+<g >
+<title>profiling/utils.py(18):_profile_model (4,938,342 us., 34.71%)</title><rect x="354.8" y="101" width="409.6" height="15.0" fill="rgb(220,97,36)" rx="2" ry="2" />
+<text  x="357.77" y="111.5" >profiling/utils.py(18):_profile_model</text>
+</g>
+<g >
+<title>transformers/models/opt/modeling_opt.py(840):_forward (154,662 us., 1.09%)</title><rect x="823.0" y="133" width="12.8" height="15.0" fill="rgb(239,178,54)" rx="2" ry="2" />
+<text  x="826.01" y="143.5" ></text>
+</g>
+<g >
+<title>torch_int/nn/opt.py(346):_forward (7,286 us., 0.05%)</title><rect x="764.6" y="197" width="0.6" height="15.0" fill="rgb(213,10,26)" rx="2" ry="2" />
+<text  x="767.55" y="207.5" ></text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(27):_decorate_context (4,938,342 us., 34.71%)</title><rect x="354.8" y="85" width="409.6" height="15.0" fill="rgb(215,2,45)" rx="2" ry="2" />
+<text  x="357.77" y="95.5" >torch/autograd/grad_mode.py(27):_decorate_context</text>
+</g>
+<g >
+<title>transformers/models/opt/modeling_opt.py(840):_forward (555,062 us., 3.90%)</title><rect x="10.0" y="213" width="46.0" height="15.0" fill="rgb(212,100,34)" rx="2" ry="2" />
+<text  x="13.00" y="223.5" >tran..</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoder (1,261,819 us., 8.87%)</title><rect x="871.2" y="149" width="104.7" height="15.0" fill="rgb(230,225,7)" rx="2" ry="2" />
+<text  x="874.20" y="159.5" >nn.Module:_I..</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTForCausalLM (2,572,478 us., 18.08%)</title><rect x="976.6" y="133" width="213.4" height="15.0" fill="rgb(210,67,30)" rx="2" ry="2" />
+<text  x="979.59" y="143.5" >nn.Module:_Int8OPTForCausalLM</text>
+</g>
+<g >
+<title>&lt;built-in_method_linear_relu_a8_w8_b8_o8_of_PyCapsule_object_at_0x7fececa19750&gt; (266,345 us., 1.87%)</title><rect x="849.1" y="261" width="22.1" height="15.0" fill="rgb(239,128,3)" rx="2" ry="2" />
+<text  x="852.11" y="271.5" >&lt;..</text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTDecoder (154,662 us., 1.09%)</title><rect x="823.0" y="149" width="12.8" height="15.0" fill="rgb(205,163,5)" rx="2" ry="2" />
+<text  x="826.01" y="159.5" ></text>
+</g>
+<g >
+<title>profiling/utils.py(18):_profile_model (2,572,478 us., 18.08%)</title><rect x="976.6" y="117" width="213.4" height="15.0" fill="rgb(222,92,24)" rx="2" ry="2" />
+<text  x="979.59" y="127.5" >profiling/utils.py(18):_prof..</text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(27):_decorate_context (8,238 us., 0.06%)</title><rect x="56.9" y="101" width="0.7" height="15.0" fill="rgb(223,225,13)" rx="2" ry="2" />
+<text  x="59.88" y="111.5" ></text>
+</g>
+<g >
+<title>all (14,227,227 us., 100%)</title><rect x="10.0" y="277" width="1180.0" height="15.0" fill="rgb(252,113,21)" rx="2" ry="2" />
+<text  x="13.00" y="287.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTAttention (229,352 us., 1.61%)</title><rect x="804.0" y="165" width="19.0" height="15.0" fill="rgb(245,169,33)" rx="2" ry="2" />
+<text  x="806.99" y="175.5" ></text>
+</g>
+<g >
+<title>torch_int/nn/fused.py(13):_forward (468,175 us., 3.29%)</title><rect x="765.2" y="229" width="38.8" height="15.0" fill="rgb(212,92,28)" rx="2" ry="2" />
+<text  x="768.16" y="239.5" >tor..</text>
+</g>
+<g >
+<title>transformers/models/opt/modeling_opt.py(840):_forward (8,197 us., 0.06%)</title><rect x="320.6" y="197" width="0.6" height="15.0" fill="rgb(209,229,15)" rx="2" ry="2" />
+<text  x="323.57" y="207.5" ></text>
+</g>
+<g >
+<title>transformers/models/opt/modeling_opt.py(114):_forward (8,238 us., 0.06%)</title><rect x="56.9" y="213" width="0.7" height="15.0" fill="rgb(251,103,14)" rx="2" ry="2" />
+<text  x="59.88" y="223.5" ></text>
+</g>
+<g >
+<title>torch/autograd/grad_mode.py(24):_decorate_context (229,352 us., 1.61%)</title><rect x="804.0" y="229" width="19.0" height="15.0" fill="rgb(223,167,41)" rx="2" ry="2" />
+<text  x="806.99" y="239.5" ></text>
+</g>
+<g >
+<title>nn.Module:_Int8OPTForCausalLM (955,141 us., 6.71%)</title><rect x="162.5" y="133" width="79.2" height="15.0" fill="rgb(246,222,16)" rx="2" ry="2" />
+<text  x="165.49" y="143.5" >nn.Module..</text>
+</g>
+</g>
+</svg>
