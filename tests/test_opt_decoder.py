@@ -1,8 +1,6 @@
 import torch
 from transformers.models.opt.modeling_opt import OPTDecoder, OPTConfig
 from torch_int.nn.opt import Int8OPTDecoder
-from torch_int.nn.linear import W8A8BFP32OFP32Linear, W8A8B8O8Linear, W8A8B8O8LinearReLU
-from typing import Tuple
 from icecream import ic
 from functools import partial
 
@@ -17,7 +15,7 @@ def store_act(module, x, y, act_dict, name):
 
 @torch.no_grad()
 def test_opt_decoder_layer():
-    config = OPTConfig.from_pretrained('opt_configs/opt-125m')
+    config = OPTConfig.from_pretrained('facebook/opt-125m')
     B, L, D, H = 1, 256, config.hidden_size, config.num_attention_heads
 
     x = torch.randint(0, config.vocab_size, (B, L)).cuda()

@@ -17,7 +17,7 @@ def store_act(module, x, y, act_dict, name):
 
 @torch.no_grad()
 def test_opt_decoder_layer():
-    config = OPTConfig.from_pretrained('opt_configs/opt-125m')
+    config = OPTConfig.from_pretrained('facebook/opt-125m')
     B, L, D, H = 1, 256, config.hidden_size, config.num_attention_heads
 
     x = torch.randn(B, L, D)
