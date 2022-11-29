@@ -1,0 +1,1 @@
+model,precision,batch_size,seq_len,latency(ms),memory(MB)
