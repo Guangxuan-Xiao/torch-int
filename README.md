@@ -1,5 +1,5 @@
 # torch-int
-Integer operators for PyTorch
+This repository contains integer operators for PyTorch.
 
 ## Dependencies
 - Cutlass
@@ -23,5 +23,5 @@ python setup.py install
 
 ## Test
 ```bash
-python tests/test_opt_decoder.py
+python tests/test_linear_modules.py
 ```
