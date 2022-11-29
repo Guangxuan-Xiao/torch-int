@@ -5,11 +5,12 @@ Integer operators for PyTorch
 - Cutlass
 - PyTorch with CUDA 11.3
 - Nvidia-Toolkit 11.3
-- Cuda 11.3
+- CUDA Driver 11.3
 - gcc g++ 9.4.0
 
 ## Installation
 ```bash
+git clone --recurse-submodules https://github.com/Guangxuan-Xiao/torch-int-dev.git
 conda create -n int python=3.8
 conda activate int
 conda install -c anaconda gxx_linux-64=9
