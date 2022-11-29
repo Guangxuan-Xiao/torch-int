@@ -1,11 +1,21 @@
 import torch
 from torch import nn
-from transformers.models.opt.modeling_opt import OPTConfig, OPTForCausalLM, OPTModel, OPTPreTrainedModel, OPTLearnedPositionalEmbedding, OPTAttention, OPTDecoderLayer, OPTDecoder
-from typing import Optional, Tuple
-from .linear import W8A8BFP32OFP32Linear, W8A8B8O8Linear, W8A8B8O8LinearReLU
-from .fused import LayerNormQ
+from transformers.models.opt.modeling_opt import (
+    OPTConfig,
+    OPTForCausalLM,
+    OPTModel,
+    OPTPreTrainedModel,
+    OPTLearnedPositionalEmbedding,
+    OPTAttention,
+    OPTDecoderLayer,
+    OPTDecoder,
+    BaseModelOutputWithPast
+)
+from typing import Optional, Tuple, Union, List
+from ..nn.linear import W8A8BFP32OFP32Linear, W8A8B8O8Linear, W8A8B8O8LinearReLU
+from ..nn.fused import LayerNormQ
 from transformers.utils import logging
-from .bmm import BMM_S8T_S8N_S8T, BMM_S8T_S8N_F32T
+from ..nn.bmm import BMM_S8T_S8N_S8T, BMM_S8T_S8N_F32T
 logger = logging.get_logger(__name__)
 
 
@@ -336,7 +346,7 @@ class Int8OPTDecoder(OPTPreTrainedModel):
     get_input_embeddings = OPTDecoder.get_input_embeddings
     set_input_embeddings = OPTDecoder.set_input_embeddings
     _prepare_decoder_attention_mask = OPTDecoder._prepare_decoder_attention_mask
-    forward = OPTDecoder.forward
+    old_forward = OPTDecoder.forward
 
     @staticmethod
     def from_float(module, decoder_layer_scales):
@@ -349,6 +359,43 @@ class Int8OPTDecoder(OPTPreTrainedModel):
             int8_module.layers[i] = Int8OPTDecoderLayer.from_float(
                 layer, **decoder_layer_scales[i])
         return int8_module
+
+    def forward(
+        self,
+        input_ids: torch.LongTensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        head_mask: Optional[torch.Tensor] = None,
+        past_key_values: Optional[List[torch.FloatTensor]] = None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
+        use_cache: Optional[bool] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+    ) -> BaseModelOutputWithPast:
+        # pad the input to the multiple of 16
+        input_len = input_ids.shape[1]
+        from torch.nn.functional import pad
+        if input_len % 16 != 0:
+            # <pad> is 1
+            padding_len = 16 - input_len % 16
+            input_ids = pad(input_ids, (0, padding_len), value=1)
+            if attention_mask is not None:
+                attention_mask = pad(attention_mask, (0, padding_len), value=0)
+        output = self.old_forward(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            head_mask=head_mask,
+            past_key_values=past_key_values,
+            inputs_embeds=inputs_embeds,
+            use_cache=use_cache,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states
+        )
+        # slice the output to the original length
+        if input_len % 16 != 0:
+            output.last_hidden_state = output.last_hidden_state[:,
+                                                                :input_len, :]
+        return output
 
 
 class Int8OPTModel(OPTPreTrainedModel):

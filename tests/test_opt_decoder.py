@@ -1,6 +1,6 @@
 import torch
 from transformers.models.opt.modeling_opt import OPTDecoder, OPTConfig
-from torch_int.nn.opt import Int8OPTDecoder
+from torch_int.models.opt import Int8OPTDecoder
 from icecream import ic
 from functools import partial
 
@@ -16,7 +16,7 @@ def store_act(module, x, y, act_dict, name):
 @torch.no_grad()
 def test_opt_decoder_layer():
     config = OPTConfig.from_pretrained('facebook/opt-125m')
-    B, L, D, H = 1, 256, config.hidden_size, config.num_attention_heads
+    B, L, D, H = 1, 255, config.hidden_size, config.num_attention_heads
 
     x = torch.randint(0, config.vocab_size, (B, L)).cuda()
     decoder = OPTDecoder(config).cuda()

@@ -1,5 +1,5 @@
 import torch
-from torch_int.nn.opt import Int8OPTForCausalLM
+from torch_int.models.opt import Int8OPTForCausalLM
 from transformers.models.opt.modeling_opt import OPTConfig, OPTForCausalLM
 import argparse
 from utils import profile_model

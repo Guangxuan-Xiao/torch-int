@@ -1,5 +1,5 @@
 import torch
-from torch_int.nn.opt import Int8OPTAttention
+from torch_int.models.opt import Int8OPTAttention
 from transformers.models.opt.modeling_opt import OPTAttention
 from utils import bench_model
 import argparse

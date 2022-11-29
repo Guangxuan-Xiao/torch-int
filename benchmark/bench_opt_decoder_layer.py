@@ -1,5 +1,5 @@
 import torch
-from torch_int.nn.opt import Int8OPTDecoderLayer
+from torch_int.models.opt import Int8OPTDecoderLayer
 from transformers.models.opt.modeling_opt import OPTDecoderLayer
 from utils import bench_model
 import argparse

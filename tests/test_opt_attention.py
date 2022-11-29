@@ -1,6 +1,6 @@
 import torch
 from transformers.models.opt.modeling_opt import OPTAttention, OPTConfig
-from torch_int.nn.opt import Int8OPTAttention
+from torch_int.models.opt import Int8OPTAttention
 from torch_int.nn.linear import W8A8BFP32OFP32Linear, W8A8B8O8Linear, W8A8B8O8LinearReLU
 from typing import Tuple
 from icecream import ic

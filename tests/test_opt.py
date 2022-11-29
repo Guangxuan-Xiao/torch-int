@@ -1,9 +1,10 @@
 import torch
-from torch_int.nn.opt import Int8OPTForCausalLM
+from torch_int.models.opt import Int8OPTForCausalLM
 from transformers.models.opt.modeling_opt import OPTAttention, OPTDecoderLayer, OPTForCausalLM
 from icecream import ic
 from transformers import GPT2Tokenizer
 from datasets import load_dataset
+from tqdm import tqdm
 
 
 class Evaluator:
@@ -14,8 +15,7 @@ class Evaluator:
 
         # tokenize the dataset
         def tokenize_function(examples):
-            example = self.tokenizer(
-                examples['text'], max_length=64, padding='max_length', truncation=True)
+            example = self.tokenizer(examples['text'])
             return example
 
         self.dataset = self.dataset.map(tokenize_function, batched=True)
@@ -24,9 +24,10 @@ class Evaluator:
     @torch.no_grad()
     def evaluate(self, model):
         model.eval()
-        # The task is to predict the last word of the input.
+        # The task is to predict the last token of the input.
         total, hit = 0, 0
-        for batch in self.dataset:
+        pbar = tqdm(self.dataset, desc='Evaluating')
+        for batch in pbar:
             input_ids = batch['input_ids'].to(self.device).unsqueeze(0)
             # label is the last token which is not the padding token
             label = input_ids[:, -1]
@@ -35,6 +36,7 @@ class Evaluator:
             pred = last_token_logits.argmax(dim=-1)
             total += label.size(0)
             hit += (pred == label).sum().item()
+            pbar.set_postfix({'acc': hit / total})
         acc = hit / total
         return acc
 
@@ -44,7 +46,7 @@ def test_opt():
     dataset = load_dataset('lambada', split='validation[:1000]')
     tokenizer = GPT2Tokenizer.from_pretrained('facebook/opt-13b')
     evaluator = Evaluator(dataset, tokenizer, 'cuda')
-    int8_model_path = '/dataset/opt/opt-13b-int8'
+    int8_model_path = '/dataset/opt/opt-13b-smoothquant'
     # precision = 'fp16'
     precision = 'int8'
     if precision == 'int8':

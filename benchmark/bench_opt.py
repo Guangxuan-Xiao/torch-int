@@ -1,5 +1,5 @@
 import torch
-from torch_int.nn.opt import Int8OPTDecoder, Int8OPTForCausalLM, Int8OPTModel
+from torch_int.models.opt import Int8OPTDecoder, Int8OPTForCausalLM, Int8OPTModel
 from transformers.models.opt.modeling_opt import OPTDecoder, OPTConfig, OPTForCausalLM, OPTModel
 from transformers import AutoTokenizer
 from torch_int.nn.linear import W8A8BFP32OFP32Linear, W8A8B8O8Linear, W8A8B8O8LinearReLU
