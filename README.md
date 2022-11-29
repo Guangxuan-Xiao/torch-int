@@ -1,5 +1,5 @@
 # torch-int
-This repository contains integer operators for PyTorch.
+This repository contains integer operators on GPUs for PyTorch.
 
 ## Dependencies
 - CUTLASS
