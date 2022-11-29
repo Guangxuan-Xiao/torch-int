@@ -22,5 +22,5 @@ python setup.py install
 
 ## Test
 ```bash
-    python tests/test_opt_decoder.py
+python tests/test_opt_decoder.py
 ```
