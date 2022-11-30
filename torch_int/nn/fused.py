@@ -22,8 +22,8 @@ class LayerNormQ(torch.nn.Module):
         assert module.normalized_shape[0] == module.weight.numel()
         assert module.normalized_shape[0] == module.bias.numel()
         q_module = LayerNormQ(module.normalized_shape[0], module.eps)
-        q_module.weight.copy_(module.weight / output_scale)
-        q_module.bias.copy_(module.bias / output_scale)
+        q_module.weight = module.weight / output_scale
+        q_module.bias = module.bias / output_scale
         return q_module
 
 class DQ_Add_LayerNorm_Q(torch.nn.Module):
