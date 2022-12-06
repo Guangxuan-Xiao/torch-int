@@ -5,6 +5,8 @@
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("linear_relu_a8_w8_b8_o8", &linear_relu_a8_w8_b8_o8,
         "Linear ReLU (INT8)");
+  m.def("linear_gelu_a8_w8_b8_o8", &linear_relu_a8_w8_b8_o8,
+        "Linear ReLU (INT8)");
   m.def("linear_a8_w8_b32_o32", &linear_a8_w8_b32_o32, "Linear (INT32)");
   m.def("linear_a8_w8_bfp32_ofp32", &linear_a8_w8_bfp32_ofp32,
         "Linear (I8-OFP32)");
