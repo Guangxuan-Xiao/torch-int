@@ -85,7 +85,11 @@ class Int8GPTJAttention(nn.Module):
         self.rotary_dim = None
         if rotary_dim is not None:
             self.rotary_dim = rotary_dim
+        self.scale_attn = torch.sqrt(torch.tensor(self.head_dim, dtype=torch.float32)).to(torch.get_default_dtype())
 
+    def _shape(self, tensor: torch.Tensor, seq_len: int, bsz: int):
+        return tensor.view(bsz, seq_len, self.num_attention_heads, self.head_dim).transpose(1, 2).contiguous()
+    
     @staticmethod
     @torch.no_grad()
     def from_float(module: GPTJAttention,
@@ -133,6 +137,8 @@ class Int8GPTJAttention(nn.Module):
         elif len(tensor.shape) == 4:
             # (batch, head, seq_length, head_features)
             return tensor.permute(0, 2, 1, 3)
+        elif len(tensor.shape) == 3:
+            return tensor.permute(1, 0, 2)
         else:
             raise ValueError(
                 f"Input tensor rank should be one of [4, 5], but is: {len(tensor.shape)}")
@@ -145,6 +151,8 @@ class Int8GPTJAttention(nn.Module):
             tensor = tensor.permute(0, 1, 3, 2, 4).contiguous()
         elif len(tensor.shape) == 4:
             tensor = tensor.permute(0, 2, 1, 3).contiguous()
+        elif len(tensor.shape) == 3:
+            tensor = tensor.permute(1, 0, 2).contiguous()
         else:
             raise ValueError(
                 f"Input tensor rank should be one of [4, 5], but is: {len(tensor.shape)}")
@@ -171,10 +179,10 @@ class Int8GPTJAttention(nn.Module):
         key = key.to(torch.int8)
 
         # attn_weights = torch.matmul(query, key.transpose(-1, -2))
-        proj_shape = (bsz * self.num_heads, -1, self.head_dim)
+        proj_shape = (self.bsz * self.num_attention_heads, -1, self.head_dim)
         key = key.view(*proj_shape)
         query = self._shape(
-            query_states, tgt_len, bsz).view(*proj_shape)
+            query, self.tgt_len, 1).view(*proj_shape)
         attn_weights = self.qk_bmm(query, key)
 
         mask_value = torch.finfo(attn_weights.dtype).min
@@ -201,8 +209,13 @@ class Int8GPTJAttention(nn.Module):
             attn_weights = attn_weights * head_mask
 
         # attn_output = torch.matmul(attn_weights, value)
+        value = value[0]
+        attn_weights = attn_weights[0]
+        # print(attn_weights.shape)
+        # print(value.shape)
         attn_output = self.pv_bmm(attn_weights, value)
-
+        value = value.view(1, *value.shape)
+        attn_weights = attn_weights.view(1, *attn_weights.shape)
         return attn_output, attn_weights
 
     def forward(
@@ -214,7 +227,7 @@ class Int8GPTJAttention(nn.Module):
         use_cache: Optional[bool] = False,
         output_attentions: Optional[bool] = False,
     ):
-
+        self.bsz, self.tgt_len, _ = hidden_states.size()
         query = self.q_proj(hidden_states)
         key = self.k_proj(hidden_states)
         value = self.v_proj(hidden_states)
