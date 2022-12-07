@@ -12,7 +12,7 @@ from transformers.models.gptj.modeling_gptj import (
 )
 
 from typing import Optional, Tuple, List
-from torch_int.nn.linear import W8A8BFP32OFP32Linear, W8A8B8O8Linear, W8A8B8O8LinearReLU
+from torch_int.nn.linear import W8A8BFP32OFP32Linear, W8A8B8O8Linear, W8A8B8O8LinearGELU
 from torch_int.nn.fused import LayerNormQ
 from transformers.utils import logging
 from torch_int.nn.bmm import BMM_S8T_S8N_S8T, BMM_S8T_S8N_F32T
@@ -49,15 +49,16 @@ def duplicate_interleave(m):
 def apply_rotary_pos_emb(x, sincos, offset=0):
     sin, cos = map(lambda t: duplicate_interleave(t)[None, offset : x.shape[1] + offset, None, :], sincos)
     # einsum notation for lambda t: repeat(t[offset:x.shape[1]+offset,:], "n d -> () n () (d j)", j=2)
-    return (x * cos) + (rotate_every_two(x) * sin)
+    r = (x.to(torch.float) * cos) + (rotate_every_two(x) * sin)
+    return r
 
 
 class Int8GPTJAttention(nn.Module):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(self, n_embd, n_head, max_position_embeddings, rotary_dim = None):
-        super().__init__()
-
+        super().__init__()  
+        self.dbgi = {}
         max_positions = max_position_embeddings
         self.embed_dim = n_embd
         self.num_attention_heads  = n_head
@@ -75,7 +76,6 @@ class Int8GPTJAttention(nn.Module):
                 f" and `num_heads`: {self.num_attention_heads})."
             )
 
-        self.attention_weight_scale = 1.0
         self.qk_bmm = BMM_S8T_S8N_F32T(1.0)
         self.pv_bmm = BMM_S8T_S8N_S8T(1.0)
         self.k_proj = W8A8B8O8Linear(n_embd, n_embd)
@@ -100,13 +100,16 @@ class Int8GPTJAttention(nn.Module):
                    out_input_scale: float):
         int8_module = Int8GPTJAttention(module.embed_dim, module.num_attention_heads, module.bias.shape[3], module.rotary_dim)
         # Fuse the scaling into the q_proj output scale
-        q_output_scale = q_output_scale * module.scale_attn
+        scale_h = module.head_dim**-0.5
+        q_output_scale = q_output_scale * scale_h
+        module.q_proj.weight *= scale_h
+        # k_output_scale = k_output_scale * scale_h
+        # module.k_proj.weight *= scale_h
         # TODO: GPTJ has no bias, find a way to elide these later 
         module.q_proj.bias = torch.nn.Parameter(torch.zeros(module.embed_dim, dtype=float))
         module.v_proj.bias = torch.nn.Parameter(torch.zeros(module.embed_dim, dtype=float))
         module.k_proj.bias = torch.nn.Parameter(torch.zeros(module.embed_dim, dtype=float))
         module.out_proj.bias = torch.nn.Parameter(torch.zeros(module.embed_dim, dtype=float))
-        module.q_proj.weight *= module.scale_attn
         int8_module.q_proj = W8A8B8O8Linear.from_float(
             module.q_proj, input_scale, q_output_scale)
         int8_module.k_proj = W8A8B8O8Linear.from_float(
@@ -119,6 +122,7 @@ class Int8GPTJAttention(nn.Module):
             q_output_scale, k_output_scale)
 
         # alpha = s_prob * s_v / s_out, where s_prob = 1 / 127
+        print(f"{v_output_scale}/{out_input_scale}")
         int8_module.pv_bmm = BMM_S8T_S8N_S8T.from_scale(
             1.0 / 127, v_output_scale, out_input_scale)
         return int8_module
@@ -132,16 +136,11 @@ class Int8GPTJAttention(nn.Module):
         if rotary:
             return tensor
         if len(tensor.shape) == 5:
-            # (batch, blocks, head, block_length, head_features)
-            return tensor.permute(0, 1, 3, 2, 4)
+            return tensor.permute(0, 1, 3, 2, 4)  # (batch, blocks, head, block_length, head_features)
         elif len(tensor.shape) == 4:
-            # (batch, head, seq_length, head_features)
-            return tensor.permute(0, 2, 1, 3)
-        elif len(tensor.shape) == 3:
-            return tensor.permute(1, 0, 2)
+            return tensor.permute(0, 2, 1, 3)  # (batch, head, seq_length, head_features)
         else:
-            raise ValueError(
-                f"Input tensor rank should be one of [4, 5], but is: {len(tensor.shape)}")
+            raise ValueError(f"Input tensor rank should be one of [4, 5], but is: {len(tensor.shape)}")
 
     def _merge_heads(self, tensor, num_attention_heads, attn_head_size):
         """
@@ -151,13 +150,9 @@ class Int8GPTJAttention(nn.Module):
             tensor = tensor.permute(0, 1, 3, 2, 4).contiguous()
         elif len(tensor.shape) == 4:
             tensor = tensor.permute(0, 2, 1, 3).contiguous()
-        elif len(tensor.shape) == 3:
-            tensor = tensor.permute(1, 0, 2).contiguous()
         else:
-            raise ValueError(
-                f"Input tensor rank should be one of [4, 5], but is: {len(tensor.shape)}")
-        new_shape = tensor.size()[:-2] + \
-            (num_attention_heads * attn_head_size,)
+            raise ValueError(f"Input tensor rank should be one of [4, 5], but is: {len(tensor.shape)}")
+        new_shape = tensor.size()[:-2] + (num_attention_heads * attn_head_size,)
         return tensor.view(new_shape)
 
     def _attn(
@@ -175,16 +170,27 @@ class Int8GPTJAttention(nn.Module):
                                 query_length: key_length, :key_length].to(torch.bool)
 
         # Keep the attention weights computation in fp32 to avoid overflow issues
-        query = query.to(torch.int8)
-        key = key.to(torch.int8)
+        # query = query.to(torch.int8)
+        # key = key.to(torch.int8)
 
         # attn_weights = torch.matmul(query, key.transpose(-1, -2))
+        # proj_shape = (self.bsz * self.num_attention_heads, -1, self.head_dim)
+        # key = key.view(*proj_shape)
+        # query = self._shape(
+        #     query, self.tgt_len, 1).view(*proj_shape)
+        
+        # key = key.transpose(-1, -2)
         proj_shape = (self.bsz * self.num_attention_heads, -1, self.head_dim)
-        key = key.view(*proj_shape)
-        query = self._shape(
-            query, self.tgt_len, 1).view(*proj_shape)
+        key = key.reshape(*proj_shape)
+        query = query.view(*proj_shape)
+        query = query.contiguous()
+        key = key.contiguous()
+        print(f"I8key:{key.shape}, query:{query.shape}")
         attn_weights = self.qk_bmm(query, key)
-
+        self.dbgi["qk"] = attn_weights.clone()
+        print(f"I8OUT: {attn_weights.shape}")
+        attn_weights = attn_weights.view(self.bsz, self.num_attention_heads, self.tgt_len, key_length)
+        print(f"I8OUTpost: {attn_weights.shape}")
         mask_value = torch.finfo(attn_weights.dtype).min
         # Need to be a tensor, otherwise we get error: `RuntimeError: expected scalar type float but found double`.
         # Need to be on the same device, otherwise `RuntimeError: ..., x and y to be on the same device`
@@ -192,7 +198,7 @@ class Int8GPTJAttention(nn.Module):
             mask_value, dtype=attn_weights.dtype).to(attn_weights.device)
         attn_weights = torch.where(causal_mask, attn_weights, mask_value)
 
-        attn_weights = attn_weights / self.scale_attn
+        # attn_weights = attn_weights / self.scale_attn
 
         if attention_mask is not None:
             # Apply the attention mask
@@ -202,25 +208,35 @@ class Int8GPTJAttention(nn.Module):
         # attn_weights = attn_weights.to(value.dtype)
         attn_weights.mul_(127).round_()
         attn_weights = attn_weights.to(torch.int8)
-        # attn_weights = self.attn_dropout(attn_weights)
 
         # Mask heads if we want to
         if head_mask is not None:
             attn_weights = attn_weights * head_mask
-
-        # attn_output = torch.matmul(attn_weights, value)
-        value = value[0]
-        attn_weights = attn_weights[0]
-        # print(attn_weights.shape)
-        # print(value.shape)
+        self.dbgi["Am1"] = value.clone()
+        attn_weights = attn_weights.view(self.bsz * self.num_attention_heads, -1, self.tgt_len).contiguous()
+        print(f"VAL:{value.shape}")
+        value = value.transpose(2,3)
+        print(f"VAL:{value.shape}")
+        value = value.reshape(self.num_attention_heads * self.bsz, self.head_dim, self.tgt_len).contiguous()
+        # value = value.reshape(self.num_attention_heads * self.bsz, self.head_dim, self.tgt_len).contiguous()
+        print(f"I8: att:{attn_weights.shape}, v: {value.shape}")
+        self.dbgi["pv_a"] = attn_weights.clone()
+        self.dbgi["pv_v"] = value.clone()
+        print(f"ATTNPROBS:{attn_weights.to(torch.float).abs().mean()}|VAL:{value.to(torch.float).abs().mean()}")
+        print(f"att___:{attn_weights.shape}, value__:{value.shape}")
         attn_output = self.pv_bmm(attn_weights, value)
-        value = value.view(1, *value.shape)
-        attn_weights = attn_weights.view(1, *attn_weights.shape)
+        # attn_output = torch.matmul(attn_weights, value)
+        # print(f"===F:{attn_output[:16]}")
+        self.dbgi["pv"] = attn_output.clone()
+        print(f"ASIZE_I8: {torch.numel(attn_output)}")
+        attn_weights = attn_weights.view(self.bsz, self.num_attention_heads, self.tgt_len, key_length)
+        attn_output = attn_output.view(self.bsz, self.num_attention_heads, self.tgt_len, self.head_dim)
+        print(f"MOUT: W:{attn_weights.shape}, O: {attn_output.shape}")
         return attn_output, attn_weights
 
     def forward(
         self,
-        hidden_states: Optional[torch.FloatTensor],
+        hidden_states: Optional[torch.Tensor],
         attention_mask: Optional[torch.FloatTensor] = None,
         layer_past: Optional[Tuple[torch.Tensor]] = None,
         head_mask: Optional[torch.FloatTensor] = None,
@@ -228,9 +244,11 @@ class Int8GPTJAttention(nn.Module):
         output_attentions: Optional[bool] = False,
     ):
         self.bsz, self.tgt_len, _ = hidden_states.size()
+        print(f"HS: {hidden_states.shape}")
         query = self.q_proj(hidden_states)
         key = self.k_proj(hidden_states)
         value = self.v_proj(hidden_states)
+        self.dbgi["vO"] = value.clone()
 
         query = self._split_heads(
             query, self.num_attention_heads, self.head_dim, True)
@@ -257,12 +275,12 @@ class Int8GPTJAttention(nn.Module):
             k_rot = apply_rotary_pos_emb(k_rot, sincos, offset=offset)
             q_rot = apply_rotary_pos_emb(q_rot, sincos, offset=offset)
 
-            key = torch.cat([k_rot, k_pass], dim=-1)
-            query = torch.cat([q_rot, q_pass], dim=-1)
+            key = torch.cat([k_rot, k_pass], dim=-1).to(torch.int8)
+            query = torch.cat([q_rot, q_pass], dim=-1).to(torch.int8)
         else:
             sincos = fixed_pos_embedding(key, 1, seq_len=seq_len)
-            key = apply_rotary_pos_emb(key, sincos, offset=offset)
-            query = apply_rotary_pos_emb(query, sincos, offset=offset)
+            key = apply_rotary_pos_emb(key, sincos, offset=offset).to(torch.int8)
+            query = apply_rotary_pos_emb(query, sincos, offset=offset).to(torch.int8)
 
         key = key.permute(0, 2, 1, 3)
         query = query.permute(0, 2, 1, 3)
@@ -277,13 +295,17 @@ class Int8GPTJAttention(nn.Module):
             present = (key, value)
         else:
             present = None
-
+        # tvals = self.dbgi[0]
+        # r2q = (tvals[0] - query).pow(2).mean() / tvals[0].pow(2).mean()
+        # r2k = (tvals[0] - query).pow(2).mean() / tvals[0].pow(2).mean()
+        # r2v = (tvals[0] - query).pow(2).mean() / tvals[0].pow(2).mean()
         # compute self-attention: V x Softmax(QK^T)
         attn_output, attn_weights = self._attn(
             query, key, value, attention_mask, head_mask)
-
+        print(f"I8-attO: {attn_output.shape}")
         attn_output = self._merge_heads(
             attn_output, self.num_attention_heads, self.head_dim)
+        attn_output = attn_output.contiguous()
         attn_output = self.out_proj(attn_output)
         # attn_output = self.resid_dropout(attn_output)
 
@@ -312,19 +334,19 @@ class Int8GPTJMLP(nn.Module):
         int8_module = Int8GPTJMLP(
             module.fc_in.out_features, module.fc_in.in_features)
         int8_module.fc1 = W8A8B8O8LinearGELU.from_float(
-            module.fc_in, fc1_input_scale)
+            module.fc_in, fc1_input_scale, fc2_input_scale)
         int8_module.fc2 = W8A8BFP32OFP32Linear.from_float(
             module.fc_out, fc2_input_scale)
         return int8_module
 
 
 class Int8GPTJBlock(nn.Module):
-    def __init__(self, config):
+    def __init__(self, inner_dim, n_embd):
         super().__init__()
-        inner_dim = config.n_inner if config.n_inner is not None else 4 * config.n_embd
-        self.ln_1 = LayerNormQ(config.n_embd)
-        self.attn = Int8GPTJAttention(config)
-        self.mlp = Int8GPTJMLP(inner_dim, config.n_embd)
+        self.ln_1 = LayerNormQ(n_embd)
+        # self.attn = Int8GPTJAttention(config)
+        # self.mlp = Int8GPTJMLP(inner_dim, n_embd)
+        self.dbgi = {}
 
     def forward(
         self,
@@ -347,15 +369,20 @@ class Int8GPTJBlock(nn.Module):
         )
         attn_output = attn_outputs[0]  # output_attn: a, present, (attentions)
         outputs = attn_outputs[1:]
-
+        # print(f"MLPIN MEAN: {hidden_states.to(torch.float).abs().mean()}")
+        # mxx = hidden_states.to(torch.float).abs().max()
+        # scc = 127.0/mxx
+        # hidden_states = hidden_states*scc.round().to(torch.int8)
         feed_forward_hidden_states = self.mlp(hidden_states)
+        self.dbgi['attoX'] = attn_output.clone()
+        self.dbgi['ffnX'] = feed_forward_hidden_states.clone()
+        self.dbgi['resiX'] = residual.clone()
         hidden_states = attn_output + feed_forward_hidden_states + residual
 
         if use_cache:
             outputs = (hidden_states,) + outputs
         else:
             outputs = (hidden_states,) + outputs[1:]
-
         return outputs  # hidden_states, present, (attentions)
 
     @staticmethod
@@ -366,24 +393,32 @@ class Int8GPTJBlock(nn.Module):
                    out_input_scale: float,
                    fc1_input_scale: float,
                    fc2_input_scale: float):
-        int8_module = Int8GPTJBlock(config)
+        inner_dim = module.mlp.fc_out.in_features
+        n_embd = module.ln_1.normalized_shape
+        # eps = module.ln_1.eps
+        int8_module = Int8GPTJBlock(inner_dim, n_embd)
         int8_module.mlp = Int8GPTJMLP.from_float(
             module.mlp, fc1_input_scale, fc2_input_scale)
         int8_module.ln_1 = LayerNormQ.from_float(module.ln_1, attn_input_scale)
+        int8_module.ln_1.eps = module.ln_1.eps
         int8_module.attn = Int8GPTJAttention.from_float(
             module.attn, attn_input_scale, q_output_scale, k_output_scale, v_output_scale, out_input_scale)
+        return int8_module
 
 
 class Int8GPTJModel(GPTJPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
-
+        n_layer = config.n_layer
+        inner_dim = 4 * config.n_embd
         self.embed_dim = config.n_embd
         self.vocab_size = config.vocab_size
+        print(f"EMBEDDING: {config.vocab_size}x{self.embed_dim}")
         self.wte = nn.Embedding(config.vocab_size, self.embed_dim)
-        self.h = nn.ModuleList([Int8PTJBlock(config)
-                               for _ in range(config.n_layer)])
-        self.ln_f = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_epsilon)
+        self.drop = nn.Identity()
+        # self.h = nn.ModuleList([Int8GPTJBlock(inner_dim, self.embed_dim)
+        #                        for _ in range(config.n_layer)])
+        # self.ln_f = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_epsilon)
 
         # Model parallel
         self.model_parallel = False
@@ -395,10 +430,15 @@ class Int8GPTJModel(GPTJPreTrainedModel):
     forward = GPTJModel.forward
 
     @staticmethod
-    def from_float(module, decoder_layer_scales):
-        int8_module = Int8GPTJModel(module.config)
-        int8_module.h = nn.ModuleList(
-            [Int8GPTJBlock.from_float(mm, decoder_layer_scales) for mm in module.h])
+    def from_float(module : GPTJModel, decoder_layer_scales):
+        config = GPTJConfig(vocab_size=module.vocab_size, n_embd=module.embed_dim, n_layer=len(module.h), rotary_dim=module.h[0].attn.rotary_dim
+        , n_inner=4*module.embed_dim)
+        int8_module = Int8GPTJModel(config)
+        int8_module.h = nn.ModuleList()
+        for i, layer in enumerate(module.h):
+            int8_module.h.insert(i, Int8GPTJBlock.from_float(
+                layer, **decoder_layer_scales[i]))
+        int8_module.ln_f = module.ln_f
         return int8_module
 
 

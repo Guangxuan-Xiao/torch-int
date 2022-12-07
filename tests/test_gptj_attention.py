@@ -6,8 +6,8 @@ from typing import Tuple
 from icecream import ic
 from functools import partial
 
-
 def store_act(module, x, y, act_dict, name):
+    # print(f"{name}: {y.mean()}")
     if isinstance(x, tuple):
         x = x[0]
     if isinstance(y, tuple):
@@ -15,15 +15,15 @@ def store_act(module, x, y, act_dict, name):
     act_dict[name] = (x, y)
 
 
-
 @torch.no_grad()
 def test_gptj_attention():
-    B, L, D, H = 1, 16, 16, 1    
+    B, L, D, H = 1, 32, 128, 1    
     x = torch.randn(B, L, D)
     x_scale = x.abs().max() / 127
     config = GPTJConfig()
     config.n_embd = D
     config.n_head = H
+    config.rotary_dim = None
     attn = GPTJAttention(config)
     attn.eval()
     act_dict = {}
@@ -31,7 +31,8 @@ def test_gptj_attention():
         if isinstance(module, torch.nn.Linear):
             module.register_forward_hook(
                 partial(store_act, act_dict=act_dict, name=name))
-    y = attn(x)[0]
+    y = attn(x)
+    y = y[0]
 
     q_output_scale = act_dict['q_proj'][1].abs().max() / 127
     k_output_scale = act_dict['k_proj'][1].abs().max() / 127
@@ -48,7 +49,6 @@ def test_gptj_attention():
     q_x = (x / x_scale).round().to(torch.int8)
     y_hat = int8_attn(q_x.cuda())[0].cpu()
 
-    # ic(y_hat)
     r2 = (y - y_hat).pow(2).mean() / y.pow(2).mean()
     ic(r2)
 
