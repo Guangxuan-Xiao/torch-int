@@ -91,16 +91,34 @@ def test_quant_linear_gelu_a8_w8_b8_o8():
     weight = torch.randint(-128, 127, (N, M), dtype=torch.int8)
     bias = torch.randint(-128, 127, (N,), dtype=torch.int8)
     x = torch.randint(-128, 127, (B, M), dtype=torch.int8)
-    alpha, beta = 0.001, 0.01
+    alpha, beta = 0.0001, 0.01
     linear = torch.nn.Linear(M, N, bias=True)
     linear.weight.data = weight.float() * alpha
     linear.bias.data = bias.float() * beta
     y_gt = linear(x.float())
-    y_gt = y_gt.clamp(0, 127).round().long()
+    y_gt = torch.nn.GELU()(y_gt)
+    y_gt = y_gt.round().long()
     y = linear_gelu_a8_w8_b8_o8(x.cuda(), weight.cuda(),
                                 bias.cuda(), alpha, beta).cpu().long()
     ic(torch.allclose(y_gt.float(), y.float().cpu(), atol=1))
 
+@torch.no_grad()
+def test_quant_linear_gelu_a8_w8_b8_o8_with_bloom_gelu():
+    B, M, N = 128, 512, 1024
+    weight = torch.randint(-128, 127, (N, M), dtype=torch.int8)
+    bias = torch.randint(-128, 127, (N,), dtype=torch.int8)
+    x = torch.randint(-128, 127, (B, M), dtype=torch.int8)
+    alpha, beta = 0.0001, 0.01
+    linear = torch.nn.Linear(M, N, bias=True)
+    linear.weight.data = weight.float() * alpha
+    linear.bias.data = bias.float() * beta
+    y_gt = linear(x.float())
+    from transformers.models.bloom.modeling_bloom import bloom_gelu_forward
+    y_gt = bloom_gelu_forward(y_gt)
+    y_gt = y_gt.round().long()
+    y = linear_gelu_a8_w8_b8_o8(x.cuda(), weight.cuda(),
+                                bias.cuda(), alpha, beta).cpu().long()
+    ic(torch.allclose(y_gt.float(), y.float().cpu(), atol=1))
 
 if __name__ == '__main__':
     print('test_quant_linear_a8_w8_b32_o32')
@@ -115,3 +133,5 @@ if __name__ == '__main__':
     test_quant_linear_relu_a8_w8_b8_o8()
     print('test_quant_linear_gelu_a8_w8_b8_o8')
     test_quant_linear_gelu_a8_w8_b8_o8()
+    print('test_quant_linear_gelu_a8_w8_b8_o8_with_bloom_gelu')
+    test_quant_linear_gelu_a8_w8_b8_o8_with_bloom_gelu()
