@@ -153,7 +153,7 @@ torch::Tensor bmm_s8t_s8n_s8t(torch::Tensor A, torch::Tensor B, float alpha) {
       DefaultGemmCfg::WarpShape, DefaultGemmCfg::InstructionShape,
       EpilogueOp>;
 #elif CUDA_ARCH >= 700
-  using EpilogueOp = cutlass::epilogue::thread::LinearCombination<
+  using EpilogueOp = cutlass::epilogue::thread::LinearCombinationClamp<
       ElementOutput, 1, ElementAccumulator, ElementComputeEpilogue>;
   using DefaultGemmCfg = cutlass::gemm::device::DefaultGemmConfiguration<
       cutlass::arch::OpClassSimt, cutlass::arch::Sm70,
@@ -253,7 +253,7 @@ torch::Tensor bmm_s8t_s8n_s32t(torch::Tensor A, torch::Tensor B) {
       DefaultGemmCfg::WarpShape, DefaultGemmCfg::InstructionShape,
       EpilogueOp>;
 #elif CUDA_ARCH >= 700
-  using EpilogueOp = cutlass::epilogue::thread::LinearCombination<
+  using EpilogueOp = cutlass::epilogue::thread::LinearCombinationClamp<
       ElementOutput, 1, ElementAccumulator, ElementComputeEpilogue>;
   using DefaultGemmCfg = cutlass::gemm::device::DefaultGemmConfiguration<
       cutlass::arch::OpClassSimt, cutlass::arch::Sm70,
