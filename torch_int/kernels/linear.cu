@@ -31,6 +31,7 @@ torch::Tensor linear_a8_w8_b32_o32(torch::Tensor input,  // INT8
   using LayoutInputB = cutlass::layout::ColumnMajor;
   using LayoutOutput = cutlass::layout::RowMajor;
 
+#if CUDA_ARCH >= 800
   using Gemm = cutlass::gemm::device::Gemm<
       int8_t, cutlass::layout::RowMajor, int8_t, cutlass::layout::ColumnMajor,
       ElementOutput, cutlass::layout::RowMajor, ElementAccumulator,
@@ -42,6 +43,36 @@ torch::Tensor linear_a8_w8_b32_o32(torch::Tensor input,  // INT8
           ElementAccumulator, ElementComputeEpilogue,
           cutlass::epilogue::thread::ScaleType::NoBetaScaling>,
       cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>, 3>;
+#elif CUDA_ARCH >= 750
+  using DefaultGemmCfg = cutlass::gemm::device::DefaultGemmConfiguration<
+      cutlass::arch::OpClassTensorOp, cutlass::arch::Sm75,
+      ElementInputA, ElementInputB, ElementOutput, ElementAccumulator>;
+  using Gemm = cutlass::gemm::device::Gemm<
+      int8_t, cutlass::layout::RowMajor, int8_t, cutlass::layout::ColumnMajor,
+      ElementOutput, cutlass::layout::RowMajor, ElementAccumulator,
+      cutlass::arch::OpClassTensorOp, cutlass::arch::Sm75,
+      DefaultGemmCfg::ThreadblockShape, DefaultGemmCfg::WarpShape,
+      DefaultGemmCfg::InstructionShape,
+      cutlass::epilogue::thread::LinearCombination<
+          ElementOutput, 128 / cutlass::sizeof_bits<ElementOutput>::value,
+          ElementAccumulator, ElementComputeEpilogue,
+          cutlass::epilogue::thread::ScaleType::NoBetaScaling>>;
+#elif CUDA_ARCH >= 700
+  using DefaultGemmCfg = cutlass::gemm::device::DefaultGemmConfiguration<
+      cutlass::arch::OpClassSimt, cutlass::arch::Sm70,
+      ElementInputA, ElementInputB, ElementOutput, ElementAccumulator>;
+  using Gemm = cutlass::gemm::device::Gemm<
+      int8_t, cutlass::layout::RowMajor, int8_t, cutlass::layout::ColumnMajor,
+      ElementOutput, cutlass::layout::RowMajor, ElementAccumulator,
+      cutlass::arch::OpClassSimt, cutlass::arch::Sm70,
+      DefaultGemmCfg::ThreadblockShape, DefaultGemmCfg::WarpShape,
+      DefaultGemmCfg::InstructionShape,
+      cutlass::epilogue::thread::LinearCombination<
+          ElementOutput, 1, ElementAccumulator, ElementComputeEpilogue,
+          cutlass::epilogue::thread::ScaleType::NoBetaScaling>>;
+#else
+  #error "Unsupported cuda arch"
+#endif
 
   auto input_size = cutlass::MatrixCoord(M, K);
   auto weight_size = cutlass::MatrixCoord(K, N);
@@ -128,6 +159,7 @@ torch::Tensor linear_a8_w8_b32_o32_with_scaling(torch::Tensor input,  // INT8
   using LayoutInputB = cutlass::layout::ColumnMajor;
   using LayoutOutput = cutlass::layout::RowMajor;
 
+#if CUDA_ARCH >= 800
   using Gemm = cutlass::gemm::device::Gemm<
       int8_t, cutlass::layout::RowMajor, int8_t, cutlass::layout::ColumnMajor,
       ElementOutput, cutlass::layout::RowMajor, ElementAccumulator,
@@ -138,6 +170,19 @@ torch::Tensor linear_a8_w8_b32_o32_with_scaling(torch::Tensor input,  // INT8
           ElementOutput, 128 / cutlass::sizeof_bits<ElementOutput>::value,
           ElementAccumulator, ElementComputeEpilogue>,
       cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>, 3>;
+#elif CUDA_ARCH >= 750
+  using Gemm = cutlass::gemm::device::Gemm<
+      int8_t, cutlass::layout::RowMajor, int8_t, cutlass::layout::ColumnMajor,
+      ElementOutput, cutlass::layout::RowMajor, ElementAccumulator,
+      cutlass::arch::OpClassTensorOp, cutlass::arch::Sm75>;
+#elif CUDA_ARCH >= 700
+  using Gemm = cutlass::gemm::device::Gemm<
+      int8_t, cutlass::layout::RowMajor, int8_t, cutlass::layout::ColumnMajor,
+      ElementOutput, cutlass::layout::RowMajor, ElementAccumulator,
+      cutlass::arch::OpClassSimt, cutlass::arch::Sm70>;
+#else
+  #error "Unsupported cuda arch"
+#endif
 
   auto input_size = cutlass::MatrixCoord(M, K);
   auto weight_size = cutlass::MatrixCoord(K, N);
@@ -221,6 +266,7 @@ torch::Tensor linear_a8_w8_bfp32_ofp32(torch::Tensor input,  // INT8
   using LayoutInputB = cutlass::layout::ColumnMajor;
   using LayoutOutput = cutlass::layout::RowMajor;
 
+#if CUDA_ARCH >= 800
   using Gemm = cutlass::gemm::device::Gemm<
       int8_t, cutlass::layout::RowMajor, int8_t, cutlass::layout::ColumnMajor,
       ElementOutput, cutlass::layout::RowMajor, ElementAccumulator,
@@ -231,6 +277,34 @@ torch::Tensor linear_a8_w8_bfp32_ofp32(torch::Tensor input,  // INT8
           ElementOutput, 128 / cutlass::sizeof_bits<ElementOutput>::value,
           ElementAccumulator, ElementComputeEpilogue>,
       cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>, 3>;
+#elif CUDA_ARCH >= 750
+  using DefaultGemmCfg = cutlass::gemm::device::DefaultGemmConfiguration<
+      cutlass::arch::OpClassTensorOp, cutlass::arch::Sm75,
+      ElementInputA, ElementInputB, ElementOutput, ElementAccumulator>;
+  using Gemm = cutlass::gemm::device::Gemm<
+      int8_t, cutlass::layout::RowMajor, int8_t, cutlass::layout::ColumnMajor,
+      ElementOutput, cutlass::layout::RowMajor, ElementAccumulator,
+      cutlass::arch::OpClassTensorOp, cutlass::arch::Sm75,
+      DefaultGemmCfg::ThreadblockShape, DefaultGemmCfg::WarpShape,
+      DefaultGemmCfg::InstructionShape,
+      cutlass::epilogue::thread::LinearCombination<
+          ElementOutput, 128 / cutlass::sizeof_bits<ElementOutput>::value,
+          ElementAccumulator, ElementComputeEpilogue>>;
+#elif CUDA_ARCH >= 700
+  using DefaultGemmCfg = cutlass::gemm::device::DefaultGemmConfiguration<
+      cutlass::arch::OpClassSimt, cutlass::arch::Sm70,
+      ElementInputA, ElementInputB, ElementOutput, ElementAccumulator>;
+  using Gemm = cutlass::gemm::device::Gemm<
+      int8_t, cutlass::layout::RowMajor, int8_t, cutlass::layout::ColumnMajor,
+      ElementOutput, cutlass::layout::RowMajor, ElementAccumulator,
+      cutlass::arch::OpClassSimt, cutlass::arch::Sm70,
+      DefaultGemmCfg::ThreadblockShape, DefaultGemmCfg::WarpShape,
+      DefaultGemmCfg::InstructionShape,
+      cutlass::epilogue::thread::LinearCombination<
+          ElementOutput, 1, ElementAccumulator, ElementComputeEpilogue>>;
+#else
+  #error "Unsupported cuda arch"
+#endif
 
   auto input_size = cutlass::MatrixCoord(M, K);
   auto weight_size = cutlass::MatrixCoord(K, N);
@@ -315,6 +389,7 @@ torch::Tensor linear_a8_w8_b8_o8(torch::Tensor input,  // INT8
   using LayoutInputB = cutlass::layout::ColumnMajor;
   using LayoutOutput = cutlass::layout::RowMajor;
 
+#if CUDA_ARCH >= 800
   using Gemm = cutlass::gemm::device::Gemm<
       int8_t, cutlass::layout::RowMajor, int8_t, cutlass::layout::ColumnMajor,
       ElementOutput, cutlass::layout::RowMajor, ElementAccumulator,
@@ -324,6 +399,19 @@ torch::Tensor linear_a8_w8_b8_o8(torch::Tensor input,  // INT8
       cutlass::epilogue::thread::FastLinearCombinationClamp<
           ElementOutput, 128 / cutlass::sizeof_bits<ElementOutput>::value>,
       cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>, 3>;
+#elif CUDA_ARCH >= 750
+  using Gemm = cutlass::gemm::device::Gemm<
+      int8_t, cutlass::layout::RowMajor, int8_t, cutlass::layout::ColumnMajor,
+      ElementOutput, cutlass::layout::RowMajor, ElementAccumulator,
+      cutlass::arch::OpClassTensorOp, cutlass::arch::Sm75>;
+#elif CUDA_ARCH >= 700
+  using Gemm = cutlass::gemm::device::Gemm<
+      int8_t, cutlass::layout::RowMajor, int8_t, cutlass::layout::ColumnMajor,
+      ElementOutput, cutlass::layout::RowMajor, ElementAccumulator,
+      cutlass::arch::OpClassSimt, cutlass::arch::Sm70>;
+#else
+  #error "Unsupported cuda arch"
+#endif
 
   auto input_size = cutlass::MatrixCoord(M, K);
   auto weight_size = cutlass::MatrixCoord(K, N);
@@ -408,6 +496,7 @@ torch::Tensor linear_relu_a8_w8_b8_o8(torch::Tensor input,  // INT8
   using LayoutInputB = cutlass::layout::ColumnMajor;
   using LayoutOutput = cutlass::layout::RowMajor;
 
+#if CUDA_ARCH >= 800
   using EpilogueOp = cutlass::epilogue::thread::LinearCombinationRelu<
       ElementOutput, // <- data type of output matrix
       128 / cutlass::sizeof_bits<
@@ -420,7 +509,6 @@ torch::Tensor linear_relu_a8_w8_b8_o8(torch::Tensor input,  // INT8
       ElementComputeEpilogue // <- data type for alpha in linear combination
                              // function
       >;
-
   using Gemm = cutlass::gemm::device::Gemm<
       int8_t, cutlass::layout::RowMajor, int8_t, cutlass::layout::ColumnMajor,
       ElementOutput, cutlass::layout::RowMajor, ElementAccumulator,
@@ -429,6 +517,47 @@ torch::Tensor linear_relu_a8_w8_b8_o8(torch::Tensor input,  // INT8
       cutlass::gemm::GemmShape<64, 64, 64>, cutlass::gemm::GemmShape<16, 8, 32>,
       EpilogueOp, cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>,
       3>;
+#elif CUDA_ARCH >= 750
+  using EpilogueOp = cutlass::epilogue::thread::LinearCombinationRelu<
+      ElementOutput, // <- data type of output matrix
+      128 / cutlass::sizeof_bits<
+                ElementOutput>::value, // <- this is the number of elements per
+                                       // vectorized memory access. For half
+                                       // precision, it's 8 elements. This
+                                       // becomes the vector width of math
+                                       // instructions in epilogue too
+      ElementAccumulator,              // <- data type of accumulator
+      ElementComputeEpilogue // <- data type for alpha in linear combination
+                             // function
+      >;
+  using DefaultGemmCfg = cutlass::gemm::device::DefaultGemmConfiguration<
+      cutlass::arch::OpClassTensorOp, cutlass::arch::Sm75,
+      ElementInputA, ElementInputB, ElementOutput, ElementAccumulator>;
+  using Gemm = cutlass::gemm::device::Gemm<
+      int8_t, cutlass::layout::RowMajor, int8_t, cutlass::layout::ColumnMajor,
+      ElementOutput, cutlass::layout::RowMajor, ElementAccumulator,
+      cutlass::arch::OpClassTensorOp, cutlass::arch::Sm75,
+      DefaultGemmCfg::ThreadblockShape, DefaultGemmCfg::WarpShape,
+      DefaultGemmCfg::InstructionShape,
+      EpilogueOp>;
+#elif CUDA_ARCH >= 700
+  // LinearCombinationRelu does work with sm70, so we use torch relu instead.
+  #define USE_TORCH_RELU
+  using EpilogueOp = cutlass::epilogue::thread::LinearCombinationClamp<
+      ElementOutput, 1, ElementAccumulator, ElementComputeEpilogue>;
+  using DefaultGemmCfg = cutlass::gemm::device::DefaultGemmConfiguration<
+      cutlass::arch::OpClassSimt, cutlass::arch::Sm70,
+      ElementInputA, ElementInputB, ElementOutput, ElementAccumulator>;
+  using Gemm = cutlass::gemm::device::Gemm<
+      int8_t, cutlass::layout::RowMajor, int8_t, cutlass::layout::ColumnMajor,
+      ElementOutput, cutlass::layout::RowMajor, ElementAccumulator,
+      cutlass::arch::OpClassSimt, cutlass::arch::Sm70,
+      DefaultGemmCfg::ThreadblockShape, DefaultGemmCfg::WarpShape,
+      DefaultGemmCfg::InstructionShape,
+      EpilogueOp>;
+#else
+  #error "Unsupported cuda arch"
+#endif
 
   auto input_size = cutlass::MatrixCoord(M, K);
   auto weight_size = cutlass::MatrixCoord(K, N);
@@ -486,6 +615,11 @@ torch::Tensor linear_relu_a8_w8_b8_o8(torch::Tensor input,  // INT8
     throw std::runtime_error("cutlass cannot run, status: " +
                              std::to_string((int)status));
   }
+
+#ifdef USE_TORCH_RELU
+#undef USE_TORCH_RELU
+  out = torch::relu(out);
+#endif
 
   return out;
 }
