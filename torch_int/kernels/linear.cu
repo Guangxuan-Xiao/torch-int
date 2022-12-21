@@ -541,7 +541,9 @@ torch::Tensor linear_relu_a8_w8_b8_o8(torch::Tensor input,  // INT8
       DefaultGemmCfg::InstructionShape,
       EpilogueOp>;
 #elif CUDA_ARCH >= 700
-  using EpilogueOp = cutlass::epilogue::thread::LinearCombinationRelu<
+  // LinearCombinationRelu does work with sm70, so we use torch relu instead.
+  #define USE_TORCH_RELU
+  using EpilogueOp = cutlass::epilogue::thread::LinearCombinationClamp<
       ElementOutput, 1, ElementAccumulator, ElementComputeEpilogue>;
   using DefaultGemmCfg = cutlass::gemm::device::DefaultGemmConfiguration<
       cutlass::arch::OpClassSimt, cutlass::arch::Sm70,
@@ -613,6 +615,11 @@ torch::Tensor linear_relu_a8_w8_b8_o8(torch::Tensor input,  // INT8
     throw std::runtime_error("cutlass cannot run, status: " +
                              std::to_string((int)status));
   }
+
+#ifdef USE_TORCH_RELU
+#undef USE_TORCH_RELU
+  out = torch::relu(out);
+#endif
 
   return out;
 }

@@ -52,6 +52,18 @@ torch::Tensor bmm_s8t_s8n_f32t(torch::Tensor A, torch::Tensor B, float alpha) {
       cutlass::arch::Sm75, DefaultGemmCfg::ThreadblockShape,
       DefaultGemmCfg::WarpShape, DefaultGemmCfg::InstructionShape,
       EpilogueOp>;
+#elif CUDA_ARCH >= 700
+  using EpilogueOp = cutlass::epilogue::thread::LinearCombination<
+      ElementOutput, 1, ElementAccumulator, ElementComputeEpilogue>;
+  using DefaultGemmCfg = cutlass::gemm::device::DefaultGemmConfiguration<
+      cutlass::arch::OpClassSimt, cutlass::arch::Sm70,
+      ElementInputA, ElementInputB, ElementOutput, ElementAccumulator>;
+  using Gemm = cutlass::gemm::device::GemmBatched<
+      ElementInputA, LayoutInputA, ElementInputB, LayoutInputB, ElementOutput,
+      LayoutOutput, ElementAccumulator, cutlass::arch::OpClassSimt,
+      cutlass::arch::Sm70, DefaultGemmCfg::ThreadblockShape,
+      DefaultGemmCfg::WarpShape, DefaultGemmCfg::InstructionShape,
+      EpilogueOp>;
 #else
   #error "Unsupported cuda arch"
 #endif
@@ -140,6 +152,18 @@ torch::Tensor bmm_s8t_s8n_s8t(torch::Tensor A, torch::Tensor B, float alpha) {
       cutlass::arch::Sm75, DefaultGemmCfg::ThreadblockShape,
       DefaultGemmCfg::WarpShape, DefaultGemmCfg::InstructionShape,
       EpilogueOp>;
+#elif CUDA_ARCH >= 700
+  using EpilogueOp = cutlass::epilogue::thread::LinearCombination<
+      ElementOutput, 1, ElementAccumulator, ElementComputeEpilogue>;
+  using DefaultGemmCfg = cutlass::gemm::device::DefaultGemmConfiguration<
+      cutlass::arch::OpClassSimt, cutlass::arch::Sm70,
+      ElementInputA, ElementInputB, ElementOutput, ElementAccumulator>;
+  using Gemm = cutlass::gemm::device::GemmBatched<
+      ElementInputA, LayoutInputA, ElementInputB, LayoutInputB, ElementOutput,
+      LayoutOutput, ElementAccumulator, cutlass::arch::OpClassSimt,
+      cutlass::arch::Sm70, DefaultGemmCfg::ThreadblockShape,
+      DefaultGemmCfg::WarpShape, DefaultGemmCfg::InstructionShape,
+      EpilogueOp>;
 #else
   #error "Unsupported cuda arch"
 #endif
@@ -226,6 +250,18 @@ torch::Tensor bmm_s8t_s8n_s32t(torch::Tensor A, torch::Tensor B) {
       ElementInputA, LayoutInputA, ElementInputB, LayoutInputB, ElementOutput,
       LayoutOutput, ElementAccumulator, cutlass::arch::OpClassTensorOp,
       cutlass::arch::Sm75, DefaultGemmCfg::ThreadblockShape,
+      DefaultGemmCfg::WarpShape, DefaultGemmCfg::InstructionShape,
+      EpilogueOp>;
+#elif CUDA_ARCH >= 700
+  using EpilogueOp = cutlass::epilogue::thread::LinearCombination<
+      ElementOutput, 1, ElementAccumulator, ElementComputeEpilogue>;
+  using DefaultGemmCfg = cutlass::gemm::device::DefaultGemmConfiguration<
+      cutlass::arch::OpClassSimt, cutlass::arch::Sm70,
+      ElementInputA, ElementInputB, ElementOutput, ElementAccumulator>;
+  using Gemm = cutlass::gemm::device::GemmBatched<
+      ElementInputA, LayoutInputA, ElementInputB, LayoutInputB, ElementOutput,
+      LayoutOutput, ElementAccumulator, cutlass::arch::OpClassSimt,
+      cutlass::arch::Sm70, DefaultGemmCfg::ThreadblockShape,
       DefaultGemmCfg::WarpShape, DefaultGemmCfg::InstructionShape,
       EpilogueOp>;
 #else
