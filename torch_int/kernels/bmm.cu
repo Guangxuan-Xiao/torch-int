@@ -29,16 +29,29 @@ torch::Tensor bmm_s8t_s8n_f32t(torch::Tensor A, torch::Tensor B, float alpha) {
   using ElementAccumulator = int32_t;
   using ElementComputeEpilogue = float;
 
+#if CUDA_ARCH >= 800
   using EpilogueOp = cutlass::epilogue::thread::LinearCombination<
       ElementOutput, 128 / cutlass::sizeof_bits<ElementOutput>::value,
       ElementAccumulator, ElementComputeEpilogue>;
-
   using Gemm = cutlass::gemm::device::GemmBatched<
       ElementInputA, LayoutInputA, ElementInputB, LayoutInputB, ElementOutput,
       LayoutOutput, ElementAccumulator, cutlass::arch::OpClassTensorOp,
       cutlass::arch::Sm80, cutlass::gemm::GemmShape<256, 128, 64>,
       cutlass::gemm::GemmShape<64, 64, 64>, cutlass::gemm::GemmShape<16, 8, 32>,
       EpilogueOp>;
+#elif CUDA_ARCH >= 750
+  using EpilogueOp = cutlass::epilogue::thread::LinearCombination<
+      ElementOutput, 128 / cutlass::sizeof_bits<ElementOutput>::value,
+      ElementAccumulator, ElementComputeEpilogue>;
+  using Gemm = cutlass::gemm::device::GemmBatched<
+      ElementInputA, LayoutInputA, ElementInputB, LayoutInputB, ElementOutput,
+      LayoutOutput, ElementAccumulator, cutlass::arch::OpClassTensorOp,
+      cutlass::arch::Sm75, cutlass::gemm::GemmShape<256, 128, 64>,
+      cutlass::gemm::GemmShape<64, 64, 64>, cutlass::gemm::GemmShape<8, 8, 16>,
+      EpilogueOp>;
+#else
+  #error "Unsupported cuda arch"
+#endif
 
   long long int batch_stride_A = M * K;
   long long int batch_stride_B = N * K;
@@ -101,16 +114,29 @@ torch::Tensor bmm_s8t_s8n_s8t(torch::Tensor A, torch::Tensor B, float alpha) {
   using ElementAccumulator = int32_t;
   using ElementComputeEpilogue = float;
 
+#if CUDA_ARCH >= 800
   using EpilogueOp = cutlass::epilogue::thread::LinearCombinationClamp<
       ElementOutput, 128 / cutlass::sizeof_bits<ElementOutput>::value,
       ElementAccumulator, ElementComputeEpilogue>;
-
   using Gemm = cutlass::gemm::device::GemmBatched<
       ElementInputA, LayoutInputA, ElementInputB, LayoutInputB, ElementOutput,
       LayoutOutput, ElementAccumulator, cutlass::arch::OpClassTensorOp,
       cutlass::arch::Sm80, cutlass::gemm::GemmShape<256, 128, 64>,
       cutlass::gemm::GemmShape<64, 64, 64>, cutlass::gemm::GemmShape<16, 8, 32>,
       EpilogueOp>;
+#elif CUDA_ARCH >= 750
+  using EpilogueOp = cutlass::epilogue::thread::LinearCombinationClamp<
+      ElementOutput, 128 / cutlass::sizeof_bits<ElementOutput>::value,
+      ElementAccumulator, ElementComputeEpilogue>;
+  using Gemm = cutlass::gemm::device::GemmBatched<
+      ElementInputA, LayoutInputA, ElementInputB, LayoutInputB, ElementOutput,
+      LayoutOutput, ElementAccumulator, cutlass::arch::OpClassTensorOp,
+      cutlass::arch::Sm75, cutlass::gemm::GemmShape<256, 128, 64>,
+      cutlass::gemm::GemmShape<64, 64, 64>, cutlass::gemm::GemmShape<8, 8, 16>,
+      EpilogueOp>;
+#else
+  #error "Unsupported cuda arch"
+#endif
 
   long long int batch_stride_A = M * K;
   long long int batch_stride_B = N * K;
@@ -173,16 +199,29 @@ torch::Tensor bmm_s8t_s8n_s32t(torch::Tensor A, torch::Tensor B) {
   using ElementAccumulator = int32_t;
   using ElementComputeEpilogue = int32_t;
 
+#if CUDA_ARCH >= 800
   using EpilogueOp = cutlass::epilogue::thread::LinearCombination<
       ElementOutput, 128 / cutlass::sizeof_bits<ElementOutput>::value,
       ElementAccumulator, ElementComputeEpilogue>;
-
   using Gemm = cutlass::gemm::device::GemmBatched<
       ElementInputA, LayoutInputA, ElementInputB, LayoutInputB, ElementOutput,
       LayoutOutput, ElementAccumulator, cutlass::arch::OpClassTensorOp,
       cutlass::arch::Sm80, cutlass::gemm::GemmShape<256, 128, 64>,
       cutlass::gemm::GemmShape<64, 64, 64>, cutlass::gemm::GemmShape<16, 8, 32>,
       EpilogueOp>;
+#elif CUDA_ARCH >= 750
+  using EpilogueOp = cutlass::epilogue::thread::LinearCombination<
+      ElementOutput, 128 / cutlass::sizeof_bits<ElementOutput>::value,
+      ElementAccumulator, ElementComputeEpilogue>;
+  using Gemm = cutlass::gemm::device::GemmBatched<
+      ElementInputA, LayoutInputA, ElementInputB, LayoutInputB, ElementOutput,
+      LayoutOutput, ElementAccumulator, cutlass::arch::OpClassTensorOp,
+      cutlass::arch::Sm75, cutlass::gemm::GemmShape<256, 128, 64>,
+      cutlass::gemm::GemmShape<64, 64, 64>, cutlass::gemm::GemmShape<8, 8, 16>,
+      EpilogueOp>;
+#else
+  #error "Unsupported cuda arch"
+#endif
 
   long long int batch_stride_A = M * K;
   long long int batch_stride_B = N * K;
