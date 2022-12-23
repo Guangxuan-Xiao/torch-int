@@ -96,7 +96,7 @@ class W8A8B8O8LinearGELU(torch.nn.Module):
         alpha = input_scale * weight_scale / output_scale
         beta = bias_scale / output_scale
         int8_module.weight = int8_weight
-        int8_module.bias = int8_bias
+        int8_module.bias = int8_bias.reshape(int8_module.bias.shape)
         int8_module.a = alpha
         int8_module.b = beta
         return int8_module
@@ -266,7 +266,7 @@ class W8A8BFP32OFP32Linear(torch.nn.Module):
         int8_weight, weight_scale = quantize_per_tensor_absmax(module.weight)
         alpha = input_scale * weight_scale
         int8_module.weight = int8_weight
-        int8_module.bias = module.bias.to(torch.float32)
+        int8_module.bias = module.bias.to(torch.float32).reshape(int8_module.bias.shape)
         int8_module.a = alpha
         int8_module.input_scale = input_scale
         int8_module.weight_scale = weight_scale

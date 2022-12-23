@@ -11,13 +11,26 @@ from transformers.models.gptj.modeling_gptj import (
     BaseModelOutputWithPast
 )
 
+@torch.no_grad()
+def quantize_per_tensor_absmax(t):
+    scale = t.abs().max() / 127
+    if not t.is_cuda:
+        # half rounding is not supported on CPU
+        t = t.float()
+    # use inplace operation to save memory
+    t.div_(scale).round_()
+    t_q = t.to(torch.int8)
+    return t_q, scale
+
 from typing import Optional, Tuple, List
 from torch_int.nn.linear import W8A8BFP32OFP32Linear, W8A8B8O8Linear, W8A8B8O8LinearGELU
 from torch_int.nn.fused import LayerNormQ
 from transformers.utils import logging
 from torch_int.nn.bmm import BMM_S8T_S8N_S8T, BMM_S8T_S8N_F32T
+from transformers.activations import ACT2FN
 
 def fixed_pos_embedding(x, seq_dim=1, seq_len=None):
+
     dim = x.shape[-1]
     if seq_len is None:
         seq_len = x.shape[seq_dim]
@@ -47,9 +60,11 @@ def duplicate_interleave(m):
 
 
 def apply_rotary_pos_emb(x, sincos, offset=0):
+    x_ = x.to(torch.float32)
     sin, cos = map(lambda t: duplicate_interleave(t)[None, offset : x.shape[1] + offset, None, :], sincos)
     # einsum notation for lambda t: repeat(t[offset:x.shape[1]+offset,:], "n d -> () n () (d j)", j=2)
-    r = (x.to(torch.float) * cos) + (rotate_every_two(x) * sin)
+    r = ((x_.to(torch.float) * cos) + (rotate_every_two(x_.to(torch.float)) * sin))
+    r = r.clamp(-128, 127).to(torch.int8)
     return r
 
 
@@ -58,8 +73,8 @@ class Int8GPTJAttention(nn.Module):
 
     def __init__(self, n_embd, n_head, max_position_embeddings, rotary_dim = None):
         super().__init__()  
-        self.dbgi = {}
         max_positions = max_position_embeddings
+        self.max_position = max_positions
         self.embed_dim = n_embd
         self.num_attention_heads  = n_head
         self.head_dim = n_embd // n_head
@@ -100,29 +115,34 @@ class Int8GPTJAttention(nn.Module):
                    out_input_scale: float):
         int8_module = Int8GPTJAttention(module.embed_dim, module.num_attention_heads, module.bias.shape[3], module.rotary_dim)
         # Fuse the scaling into the q_proj output scale
-        scale_h = module.head_dim**-0.5
-        q_output_scale = q_output_scale * scale_h
-        module.q_proj.weight *= scale_h
-        # k_output_scale = k_output_scale * scale_h
-        # module.k_proj.weight *= scale_h
+        # scale_h = module.head_dim**-0.5
+        ## scaling
+        # qoo = q_output_scale
+        # q_output_scale = q_output_scale * scale_h 
+        # module.q_proj.weight *= scale_h
+        # qs2 = q_output_scale * scale_h
+        ## scaling
         # TODO: GPTJ has no bias, find a way to elide these later 
-        module.q_proj.bias = torch.nn.Parameter(torch.zeros(module.embed_dim, dtype=float))
-        module.v_proj.bias = torch.nn.Parameter(torch.zeros(module.embed_dim, dtype=float))
-        module.k_proj.bias = torch.nn.Parameter(torch.zeros(module.embed_dim, dtype=float))
-        module.out_proj.bias = torch.nn.Parameter(torch.zeros(module.embed_dim, dtype=float))
+        module.q_proj.bias = torch.nn.Parameter(torch.zeros((1,module.embed_dim), dtype=module.q_proj.weight.dtype))
+        module.v_proj.bias = torch.nn.Parameter(torch.zeros((1,module.embed_dim), dtype=module.v_proj.weight.dtype))
+        module.k_proj.bias = torch.nn.Parameter(torch.zeros((1,module.embed_dim), dtype=module.k_proj.weight.dtype))
+        module.out_proj.bias = torch.nn.Parameter(torch.zeros((1,module.embed_dim), dtype=module.out_proj.weight.dtype))
+        module.cuda()
         int8_module.q_proj = W8A8B8O8Linear.from_float(
             module.q_proj, input_scale, q_output_scale)
+        wc = module.k_proj.weight.clone()
         int8_module.k_proj = W8A8B8O8Linear.from_float(
             module.k_proj, input_scale, k_output_scale)
+        int8_weight, weight_scale = quantize_per_tensor_absmax(wc)
         int8_module.v_proj = W8A8B8O8Linear.from_float(
             module.v_proj, input_scale, v_output_scale)
+        int8_module.v_proj.requires_grad = False
         int8_module.out_proj = W8A8BFP32OFP32Linear.from_float(
             module.out_proj, out_input_scale)
         int8_module.qk_bmm = BMM_S8T_S8N_F32T.from_scale(
             q_output_scale, k_output_scale)
-
         # alpha = s_prob * s_v / s_out, where s_prob = 1 / 127
-        print(f"{v_output_scale}/{out_input_scale}")
+        # print(f"{v_output_scale}/{out_input_scale}")
         int8_module.pv_bmm = BMM_S8T_S8N_S8T.from_scale(
             1.0 / 127, v_output_scale, out_input_scale)
         return int8_module
@@ -167,17 +187,7 @@ class Int8GPTJAttention(nn.Module):
         # compute causal mask from causal mask buffer
         query_length, key_length = query.size(-2), key.size(-2)
         causal_mask = self.bias[:, :, key_length -
-                                query_length: key_length, :key_length].to(torch.bool)
-
-        # Keep the attention weights computation in fp32 to avoid overflow issues
-        # query = query.to(torch.int8)
-        # key = key.to(torch.int8)
-
-        # attn_weights = torch.matmul(query, key.transpose(-1, -2))
-        # proj_shape = (self.bsz * self.num_attention_heads, -1, self.head_dim)
-        # key = key.view(*proj_shape)
-        # query = self._shape(
-        #     query, self.tgt_len, 1).view(*proj_shape)
+                                query_length: key_length, :key_length].to(torch.bool).cuda()
         
         # key = key.transpose(-1, -2)
         proj_shape = (self.bsz * self.num_attention_heads, -1, self.head_dim)
@@ -185,12 +195,8 @@ class Int8GPTJAttention(nn.Module):
         query = query.view(*proj_shape)
         query = query.contiguous()
         key = key.contiguous()
-        print(f"I8key:{key.shape}, query:{query.shape}")
         attn_weights = self.qk_bmm(query, key)
-        self.dbgi["qk"] = attn_weights.clone()
-        print(f"I8OUT: {attn_weights.shape}")
         attn_weights = attn_weights.view(self.bsz, self.num_attention_heads, self.tgt_len, key_length)
-        print(f"I8OUTpost: {attn_weights.shape}")
         mask_value = torch.finfo(attn_weights.dtype).min
         # Need to be a tensor, otherwise we get error: `RuntimeError: expected scalar type float but found double`.
         # Need to be on the same device, otherwise `RuntimeError: ..., x and y to be on the same device`
@@ -198,40 +204,25 @@ class Int8GPTJAttention(nn.Module):
             mask_value, dtype=attn_weights.dtype).to(attn_weights.device)
         attn_weights = torch.where(causal_mask, attn_weights, mask_value)
 
-        # attn_weights = attn_weights / self.scale_attn
+        attn_weights = attn_weights / self.scale_attn
 
         if attention_mask is not None:
             # Apply the attention mask
             attn_weights = attn_weights + attention_mask
 
         attn_weights = nn.functional.softmax(attn_weights, dim=-1)
-        # attn_weights = attn_weights.to(value.dtype)
         attn_weights.mul_(127).round_()
         attn_weights = attn_weights.to(torch.int8)
 
         # Mask heads if we want to
         if head_mask is not None:
             attn_weights = attn_weights * head_mask
-        self.dbgi["Am1"] = value.clone()
         attn_weights = attn_weights.view(self.bsz * self.num_attention_heads, -1, self.tgt_len).contiguous()
-        print(f"VAL:{value.shape}")
         value = value.transpose(2,3)
-        print(f"VAL:{value.shape}")
         value = value.reshape(self.num_attention_heads * self.bsz, self.head_dim, self.tgt_len).contiguous()
-        # value = value.reshape(self.num_attention_heads * self.bsz, self.head_dim, self.tgt_len).contiguous()
-        print(f"I8: att:{attn_weights.shape}, v: {value.shape}")
-        self.dbgi["pv_a"] = attn_weights.clone()
-        self.dbgi["pv_v"] = value.clone()
-        print(f"ATTNPROBS:{attn_weights.to(torch.float).abs().mean()}|VAL:{value.to(torch.float).abs().mean()}")
-        print(f"att___:{attn_weights.shape}, value__:{value.shape}")
         attn_output = self.pv_bmm(attn_weights, value)
-        # attn_output = torch.matmul(attn_weights, value)
-        # print(f"===F:{attn_output[:16]}")
-        self.dbgi["pv"] = attn_output.clone()
-        print(f"ASIZE_I8: {torch.numel(attn_output)}")
         attn_weights = attn_weights.view(self.bsz, self.num_attention_heads, self.tgt_len, key_length)
         attn_output = attn_output.view(self.bsz, self.num_attention_heads, self.tgt_len, self.head_dim)
-        print(f"MOUT: W:{attn_weights.shape}, O: {attn_output.shape}")
         return attn_output, attn_weights
 
     def forward(
@@ -244,11 +235,10 @@ class Int8GPTJAttention(nn.Module):
         output_attentions: Optional[bool] = False,
     ):
         self.bsz, self.tgt_len, _ = hidden_states.size()
-        print(f"HS: {hidden_states.shape}")
+        # self.out_proj.cuda()
         query = self.q_proj(hidden_states)
         key = self.k_proj(hidden_states)
         value = self.v_proj(hidden_states)
-        self.dbgi["vO"] = value.clone()
 
         query = self._split_heads(
             query, self.num_attention_heads, self.head_dim, True)
@@ -275,12 +265,12 @@ class Int8GPTJAttention(nn.Module):
             k_rot = apply_rotary_pos_emb(k_rot, sincos, offset=offset)
             q_rot = apply_rotary_pos_emb(q_rot, sincos, offset=offset)
 
-            key = torch.cat([k_rot, k_pass], dim=-1).to(torch.int8)
-            query = torch.cat([q_rot, q_pass], dim=-1).to(torch.int8)
+            key = torch.cat([k_rot, k_pass.to(torch.int8)], dim=-1)
+            query = torch.cat([q_rot, q_pass.to(torch.int8)], dim=-1)
         else:
             sincos = fixed_pos_embedding(key, 1, seq_len=seq_len)
-            key = apply_rotary_pos_emb(key, sincos, offset=offset).to(torch.int8)
-            query = apply_rotary_pos_emb(query, sincos, offset=offset).to(torch.int8)
+            key = apply_rotary_pos_emb(key, sincos, offset=offset)
+            query = apply_rotary_pos_emb(query, sincos, offset=offset)
 
         key = key.permute(0, 2, 1, 3)
         query = query.permute(0, 2, 1, 3)
@@ -295,19 +285,13 @@ class Int8GPTJAttention(nn.Module):
             present = (key, value)
         else:
             present = None
-        # tvals = self.dbgi[0]
-        # r2q = (tvals[0] - query).pow(2).mean() / tvals[0].pow(2).mean()
-        # r2k = (tvals[0] - query).pow(2).mean() / tvals[0].pow(2).mean()
-        # r2v = (tvals[0] - query).pow(2).mean() / tvals[0].pow(2).mean()
         # compute self-attention: V x Softmax(QK^T)
         attn_output, attn_weights = self._attn(
             query, key, value, attention_mask, head_mask)
-        print(f"I8-attO: {attn_output.shape}")
         attn_output = self._merge_heads(
             attn_output, self.num_attention_heads, self.head_dim)
         attn_output = attn_output.contiguous()
         attn_output = self.out_proj(attn_output)
-        # attn_output = self.resid_dropout(attn_output)
 
         outputs = (attn_output, present)
         if output_attentions:
@@ -325,9 +309,10 @@ class Int8GPTJMLP(nn.Module):
         self.fc2 = W8A8BFP32OFP32Linear(intermediate_size, embed_dim)
 
     def forward(self, hidden_states: Optional[torch.FloatTensor]) -> torch.FloatTensor:
+        # hidden_states = hidden_states.to(torch.float)
         hidden_states = self.fc1(hidden_states)
         hidden_states = self.fc2(hidden_states)
-        return hidden_states
+        return hidden_states 
 
     @staticmethod
     def from_float(module: GPTJMLP, fc1_input_scale: float, fc2_input_scale: float):
@@ -341,12 +326,11 @@ class Int8GPTJMLP(nn.Module):
 
 
 class Int8GPTJBlock(nn.Module):
-    def __init__(self, inner_dim, n_embd):
+    def __init__(self, inner_dim, n_embd, n_head, max_position_embeddings, rotary_dim = None):
         super().__init__()
         self.ln_1 = LayerNormQ(n_embd)
-        # self.attn = Int8GPTJAttention(config)
-        # self.mlp = Int8GPTJMLP(inner_dim, n_embd)
-        self.dbgi = {}
+        self.attn = Int8GPTJAttention(n_embd, n_head, max_position_embeddings, rotary_dim)
+        self.mlp = Int8GPTJMLP(inner_dim, n_embd)
 
     def forward(
         self,
@@ -369,16 +353,8 @@ class Int8GPTJBlock(nn.Module):
         )
         attn_output = attn_outputs[0]  # output_attn: a, present, (attentions)
         outputs = attn_outputs[1:]
-        # print(f"MLPIN MEAN: {hidden_states.to(torch.float).abs().mean()}")
-        # mxx = hidden_states.to(torch.float).abs().max()
-        # scc = 127.0/mxx
-        # hidden_states = hidden_states*scc.round().to(torch.int8)
-        feed_forward_hidden_states = self.mlp(hidden_states)
-        self.dbgi['attoX'] = attn_output.clone()
-        self.dbgi['ffnX'] = feed_forward_hidden_states.clone()
-        self.dbgi['resiX'] = residual.clone()
+        feed_forward_hidden_states = self.mlp(hidden_states)  
         hidden_states = attn_output + feed_forward_hidden_states + residual
-
         if use_cache:
             outputs = (hidden_states,) + outputs
         else:
@@ -394,31 +370,32 @@ class Int8GPTJBlock(nn.Module):
                    fc1_input_scale: float,
                    fc2_input_scale: float):
         inner_dim = module.mlp.fc_out.in_features
-        n_embd = module.ln_1.normalized_shape
-        # eps = module.ln_1.eps
-        int8_module = Int8GPTJBlock(inner_dim, n_embd)
+        n_embd = module.ln_1.normalized_shape[0]
+        int8_module = Int8GPTJBlock(inner_dim, n_embd, module.attn.num_attention_heads, module.attn.bias.shape[0], module.attn.rotary_dim)
         int8_module.mlp = Int8GPTJMLP.from_float(
             module.mlp, fc1_input_scale, fc2_input_scale)
         int8_module.ln_1 = LayerNormQ.from_float(module.ln_1, attn_input_scale)
-        int8_module.ln_1.eps = module.ln_1.eps
         int8_module.attn = Int8GPTJAttention.from_float(
             module.attn, attn_input_scale, q_output_scale, k_output_scale, v_output_scale, out_input_scale)
         return int8_module
 
 
 class Int8GPTJModel(GPTJPreTrainedModel):
+    # TODO: have to add padding!
     def __init__(self, config):
+        self.d = {}
         super().__init__(config)
         n_layer = config.n_layer
         inner_dim = 4 * config.n_embd
         self.embed_dim = config.n_embd
         self.vocab_size = config.vocab_size
-        print(f"EMBEDDING: {config.vocab_size}x{self.embed_dim}")
         self.wte = nn.Embedding(config.vocab_size, self.embed_dim)
         self.drop = nn.Identity()
-        # self.h = nn.ModuleList([Int8GPTJBlock(inner_dim, self.embed_dim)
-        #                        for _ in range(config.n_layer)])
-        # self.ln_f = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_epsilon)
+        self.padding_idx = config.pad_token_id
+        # self.h = nn.ModuleList()
+        self.h = nn.ModuleList([Int8GPTJBlock(inner_dim, self.embed_dim, config.n_head, config.n_positions, config.rotary_dim)
+                               for _ in range(config.n_layer)])
+        self.ln_f = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_epsilon)
 
         # Model parallel
         self.model_parallel = False
@@ -427,18 +404,46 @@ class Int8GPTJModel(GPTJPreTrainedModel):
 
     get_input_embeddings = GPTJModel.get_input_embeddings
     set_input_embeddings = GPTJModel.set_input_embeddings
-    forward = GPTJModel.forward
+    old_forward = GPTJModel.forward
+
+    def forward(
+        self,
+        input_ids: Optional[torch.LongTensor] = None,
+        past_key_values: Optional[Tuple[Tuple[torch.Tensor]]] = None,
+        attention_mask: Optional[torch.FloatTensor] = None,
+        token_type_ids: Optional[torch.LongTensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        head_mask: Optional[torch.FloatTensor] = None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
+        use_cache: Optional[bool] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+    ):
+        from torch.nn.functional import pad
+        input_len = input_ids.shape[1]
+        if input_len % 16 != 0:
+            padding_len = 16 - input_len % 16
+            input_ids =  pad(input_ids, (0, padding_len), value=self.padding_idx)
+            if attention_mask is not None:
+                attention_mask = pad(attention_mask, (0, padding_len), value=0)
+        output = self.old_forward(input_ids, past_key_values, attention_mask, token_type_ids, position_ids, head_mask, inputs_embeds, use_cache, output_attentions, output_hidden_states, return_dict)
+        if input_len % 16 != 0:
+            output.last_hidden_state = output.last_hidden_state[:,:input_len, :]
+        return output
 
     @staticmethod
-    def from_float(module : GPTJModel, decoder_layer_scales):
+    def from_float(module : GPTJModel, decoder_layer_scales, k = None):
         config = GPTJConfig(vocab_size=module.vocab_size, n_embd=module.embed_dim, n_layer=len(module.h), rotary_dim=module.h[0].attn.rotary_dim
         , n_inner=4*module.embed_dim)
         int8_module = Int8GPTJModel(config)
-        int8_module.h = nn.ModuleList()
         for i, layer in enumerate(module.h):
-            int8_module.h.insert(i, Int8GPTJBlock.from_float(
-                layer, **decoder_layer_scales[i]))
-        int8_module.ln_f = module.ln_f
+            if k is not None and i in k:
+                int8_module.h[i] = layer
+            else:
+                int8_module.h[i] = Int8GPTJBlock.from_float(layer, **decoder_layer_scales[i])
+        int8_module.ln_f = module.ln_f.to(torch.float)
+        int8_module.wte = module.wte
         return int8_module
 
 
@@ -458,10 +463,10 @@ class Int8GPTJForCausalLM(GPTJPreTrainedModel):
         self.post_init()
 
     @staticmethod
-    def from_float(module, decoder_layer_scales):
+    def from_float(module, decoder_layer_scales, k = None):
         int8_module = Int8GPTJForCausalLM(module.config)
-        int8_module.transformer = Int8GPTJModel(config, decoder_layer_scales)
-        int8_module.lm_head = module.lm_head
+        int8_module.transformer = Int8GPTJModel.from_float(module.transformer, decoder_layer_scales, k)
+        int8_module.lm_head = module.lm_head.to(torch.float)
         return int8_module
 
     get_input_embeddings = GPTJForCausalLM.get_input_embeddings

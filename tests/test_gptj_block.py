@@ -20,7 +20,7 @@ def store_act(module, x, y, act_dict, name):
 def test_gptj_block():
     config : GPTJConfig = GPTJConfig.from_pretrained('Salesforce/codegen-350M-mono')
     B, L, D, H = 1, 256, config.n_embd, config.n_head
-    x = torch.randn(B, L, D)*10
+    x = torch.randn(B, L, D)
     blk = GPTJBlock(config)
     blk.eval()
     act_dict = {}
