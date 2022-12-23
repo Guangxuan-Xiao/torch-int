@@ -1,5 +1,5 @@
 import torch
-from torch_int._CUDA import linear_a8_w8_b32_o32, linear_relu_a8_w8_b8_o8, linear_a8_w8_b8_o8, linear_a8_w8_b32_o32_with_scaling, linear_a8_w8_bfp32_ofp32
+from torch_int._CUDA import linear_a8_w8_b32_o32, linear_relu_a8_w8_b8_o8, linear_a8_w8_b8_o8, linear_a8_w8_b32_o32_with_scaling, linear_a8_w8_bfp32_ofp32, linear_gelu_a8_w8_b8_o8
 from icecream import ic
 
 
@@ -85,6 +85,23 @@ def test_quant_linear_relu_a8_w8_b8_o8():
     ic(torch.allclose(y_gt.float(), y.float().cpu(), atol=1))
 
 
+@torch.no_grad()
+def test_quant_linear_gelu_a8_w8_b8_o8():
+    B, M, N = 128, 512, 1024
+    weight = torch.randint(-128, 127, (N, M), dtype=torch.int8)
+    bias = torch.randint(-128, 127, (N,), dtype=torch.int8)
+    x = torch.randint(-128, 127, (B, M), dtype=torch.int8)
+    alpha, beta = 0.001, 0.01
+    linear = torch.nn.Linear(M, N, bias=True)
+    linear.weight.data = weight.float() * alpha
+    linear.bias.data = bias.float() * beta
+    y_gt = linear(x.float())
+    y_gt = y_gt.clamp(0, 127).round().long()
+    y = linear_gelu_a8_w8_b8_o8(x.cuda(), weight.cuda(),
+                                bias.cuda(), alpha, beta).cpu().long()
+    ic(torch.allclose(y_gt.float(), y.float().cpu(), atol=1))
+
+
 if __name__ == '__main__':
     print('test_quant_linear_a8_w8_b32_o32')
     test_quant_linear_a8_w8_b32_o32()
@@ -96,3 +113,5 @@ if __name__ == '__main__':
     test_quant_linear_a8_w8_b8_o8()
     print('test_quant_linear_relu_a8_w8_b8_o8')
     test_quant_linear_relu_a8_w8_b8_o8()
+    print('test_quant_linear_gelu_a8_w8_b8_o8')
+    test_quant_linear_gelu_a8_w8_b8_o8()
