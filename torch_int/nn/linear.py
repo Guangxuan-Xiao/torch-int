@@ -234,16 +234,17 @@ class W8A16Linear(torch.nn.Module):
         super(W8A16Linear, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
+        self.dequant_type = torch.float16
 
         self.register_buffer('weight', torch.randint(-127, 127, (self.out_features,
                                                                  self.in_features), dtype=torch.int8, requires_grad=False))
         if bias:
             self.register_buffer('bias', torch.zeros(
-                (1, self.out_features), dtype=torch.float16, requires_grad=False))
+                (1, self.out_features), dtype=self.dequant_type, requires_grad=False))
         else:
             self.register_buffer('bias', None)
         self.register_buffer('weight_scales', torch.ones(
-            self.out_features, dtype=torch.float16, requires_grad=False))
+            self.out_features, dtype=self.dequant_type, requires_grad=False))
 
     def to(self, *args, **kwargs):
         super(W8A16Linear, self).to(*args, **kwargs)
@@ -255,7 +256,7 @@ class W8A16Linear(torch.nn.Module):
 
     @torch.no_grad()
     def forward(self, x):
-        weight_fp16 = self.weight.to(torch.float16)
+        weight_fp16 = self.weight.to(self.dequant_type)
         weight_fp16.mul_(self.weight_scales)
         y = torch.functional.F.linear(x, weight_fp16, self.bias)
         del weight_fp16
@@ -275,7 +276,7 @@ class W8A16Linear(torch.nn.Module):
             raise ValueError(
                 'weight_quant must be "per_channel" or "per_tensor"')
         if module.bias is not None:
-            new_module.bias = module.bias.to(torch.float16)
+            new_module.bias = module.bias.to(self.dequant_type)
         return new_module
 
     def __repr__(self):
