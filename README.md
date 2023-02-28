@@ -7,6 +7,7 @@ This repository contains integer operators on GPUs for PyTorch.
 - NVIDIA-Toolkit 11.3
 - CUDA Driver 11.3
 - gcc g++ 9.4.0
+- cmake >= 3.12
 
 ## Installation
 ```bash
