@@ -27,6 +27,12 @@ class W8A8B8O8Linear(torch.nn.Module):
         self.register_buffer('a', torch.tensor(alpha))
         self.register_buffer('b', torch.tensor(beta))
 
+    def _apply(self, fn):
+        super()._apply(fn)
+        self.a = self.a.cpu()
+        self.b = self.b.cpu()
+        return self
+
     def to(self, *args, **kwargs):
         super().to(*args, **kwargs)
         self.weight = self.weight.to(*args, **kwargs)
@@ -70,6 +76,12 @@ class W8A8B8O8LinearReLU(torch.nn.Module):
             (1, self.out_features), dtype=torch.int8, requires_grad=False))
         self.register_buffer('a', torch.tensor(alpha))
         self.register_buffer('b', torch.tensor(beta))
+
+    def _apply(self, fn):
+        super()._apply(fn)
+        self.a = self.a.cpu()
+        self.b = self.b.cpu()
+        return self
 
     def to(self, *args, **kwargs):
         super().to(*args, **kwargs)
@@ -143,6 +155,12 @@ class W8A8B32O32Linear(torch.nn.Module):
         self.register_buffer('a', torch.tensor(alpha))
         self.register_buffer('b', torch.tensor(beta))
 
+    def _apply(self, fn):
+        super()._apply(fn)
+        self.a = self.a.cpu()
+        self.b = self.b.cpu()
+        return self
+
     def to(self, *args, **kwargs):
         super().to(*args, **kwargs)
         self.weight = self.weight.to(*args, **kwargs)
@@ -195,6 +213,7 @@ class W8A8BFP32OFP32Linear(torch.nn.Module):
     def _apply(self, fn):
         # prevent the bias from being converted to half
         super()._apply(fn)
+        self.a = self.a.cpu()
         self.bias = self.bias.to(torch.float32)
         return self
 
