@@ -48,7 +48,6 @@ def test_quant_linear_a8_w8_bfp32_ofp32():
     y_gt = linear(x.float())
     y = linear_a8_w8_bfp32_ofp32(
         x.cuda(), weight.cuda(), bias.cuda(), alpha, beta)
-    print(y.shape)
     ic(torch.allclose(y_gt, y.cpu(), atol=0.5))
 
 
