@@ -17,7 +17,7 @@ setup(
                 'torch_int/kernels/fused.cu',
                 'torch_int/kernels/bindings.cpp',
             ],
-            include_dirs=['torch_int/kernels/include'],
+            include_dirs=['torch_int/kernels/include', 'submodules/cutlass/include', 'submodules/cutlass/tools/util/include'],
             extra_link_args=['-lcublas_static', '-lcublasLt_static',
                              '-lculibos', '-lcudart', '-lcudart_static',
                              '-lrt', '-lpthread', '-ldl', '-L/usr/lib/x86_64-linux-gnu/'],
